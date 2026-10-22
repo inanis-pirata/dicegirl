@@ -25,6 +25,13 @@ make fmt          # gofmt -w
 
 外部依赖只有两个：[gopkg.in/yaml.v3](https://github.com/go-yaml/yaml)（角色卡与规则数据的 YAML 编解码）与 [gorilla/websocket](https://github.com/gorilla/websocket)（QQ 网关长连接）；SQLite 使用纯 Go 驱动，无需 cgo。
 
+国内网络建议先设模块代理，否则首次下载会很慢；依赖只需下载一次，之后走本地构建缓存：
+
+```bash
+go env -w GOPROXY=https://goproxy.cn,direct
+go mod download
+```
+
 ## 快速开始
 
 CLI 只有一套聊天风格短指令（首字符 `.。!！` 可省略）：
