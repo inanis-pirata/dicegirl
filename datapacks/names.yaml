@@ -1,0 +1,184 @@
+# Built-in non-rule data pack: random names.
+#
+# This file is a *data pack*, not a rulebook: it carries lookup content that
+# belongs to no game (names are not CoC rules). Game rules live exclusively
+# in the rulebooks; data packs use the same random-table schema.
+#
+# A name set composes one name from table rolls: every part rolls its table
+# once and the row texts are concatenated in order.
+schema_version: "1"
+id: "names"
+name: "随机姓名数据包"
+description: "中文 / 日文 / 英文随机姓名（数据，非规则）"
+
+tables:
+  - id: cn_surname
+    name: "中文姓氏"
+    roll: "1d20"
+    rows:
+      - { range: "1", text: "赵" }
+      - { range: "2", text: "钱" }
+      - { range: "3", text: "孙" }
+      - { range: "4", text: "李" }
+      - { range: "5", text: "周" }
+      - { range: "6", text: "吴" }
+      - { range: "7", text: "郑" }
+      - { range: "8", text: "王" }
+      - { range: "9", text: "冯" }
+      - { range: "10", text: "陈" }
+      - { range: "11", text: "褚" }
+      - { range: "12", text: "卫" }
+      - { range: "13", text: "蒋" }
+      - { range: "14", text: "沈" }
+      - { range: "15", text: "韩" }
+      - { range: "16", text: "杨" }
+      - { range: "17", text: "朱" }
+      - { range: "18", text: "秦" }
+      - { range: "19", text: "尤" }
+      - { range: "20", text: "许" }
+
+  - id: cn_given
+    name: "中文名字"
+    roll: "1d20"
+    rows:
+      - { range: "1", text: "伟" }
+      - { range: "2", text: "芳" }
+      - { range: "3", text: "娜" }
+      - { range: "4", text: "敏" }
+      - { range: "5", text: "静" }
+      - { range: "6", text: "丽" }
+      - { range: "7", text: "强" }
+      - { range: "8", text: "磊" }
+      - { range: "9", text: "洋" }
+      - { range: "10", text: "艳" }
+      - { range: "11", text: "勇" }
+      - { range: "12", text: "军" }
+      - { range: "13", text: "杰" }
+      - { range: "14", text: "娟" }
+      - { range: "15", text: "涛" }
+      - { range: "16", text: "明" }
+      - { range: "17", text: "超" }
+      - { range: "18", text: "秀兰" }
+      - { range: "19", text: "霞" }
+      - { range: "20", text: "平" }
+
+  - id: jp_surname
+    name: "日文姓氏"
+    roll: "1d20"
+    rows:
+      - { range: "1", text: "佐藤" }
+      - { range: "2", text: "鈴木" }
+      - { range: "3", text: "高橋" }
+      - { range: "4", text: "田中" }
+      - { range: "5", text: "伊藤" }
+      - { range: "6", text: "渡辺" }
+      - { range: "7", text: "山本" }
+      - { range: "8", text: "中村" }
+      - { range: "9", text: "小林" }
+      - { range: "10", text: "加藤" }
+      - { range: "11", text: "吉田" }
+      - { range: "12", text: "山田" }
+      - { range: "13", text: "佐々木" }
+      - { range: "14", text: "山口" }
+      - { range: "15", text: "松本" }
+      - { range: "16", text: "井上" }
+      - { range: "17", text: "木村" }
+      - { range: "18", text: "林" }
+      - { range: "19", text: "斎藤" }
+      - { range: "20", text: "清水" }
+
+  - id: jp_given
+    name: "日文名字"
+    roll: "1d20"
+    rows:
+      - { range: "1", text: "陽" }
+      - { range: "2", text: "葵" }
+      - { range: "3", text: "蓮" }
+      - { range: "4", text: "楓" }
+      - { range: "5", text: "翔" }
+      - { range: "6", text: "悠" }
+      - { range: "7", text: "真" }
+      - { range: "8", text: "結" }
+      - { range: "9", text: "愛" }
+      - { range: "10", text: "拓" }
+      - { range: "11", text: "海" }
+      - { range: "12", text: "陽菜" }
+      - { range: "13", text: "美咲" }
+      - { range: "14", text: "大和" }
+      - { range: "15", text: "奏" }
+      - { range: "16", text: "颯" }
+      - { range: "17", text: "優" }
+      - { range: "18", text: "桜" }
+      - { range: "19", text: "湊" }
+      - { range: "20", text: "光" }
+
+  - id: en_first
+    name: "英文名"
+    roll: "1d20"
+    rows:
+      - { range: "1", text: "James" }
+      - { range: "2", text: "Mary" }
+      - { range: "3", text: "John" }
+      - { range: "4", text: "Patricia" }
+      - { range: "5", text: "Robert" }
+      - { range: "6", text: "Jennifer" }
+      - { range: "7", text: "Michael" }
+      - { range: "8", text: "Linda" }
+      - { range: "9", text: "William" }
+      - { range: "10", text: "Elizabeth" }
+      - { range: "11", text: "David" }
+      - { range: "12", text: "Barbara" }
+      - { range: "13", text: "Richard" }
+      - { range: "14", text: "Susan" }
+      - { range: "15", text: "Joseph" }
+      - { range: "16", text: "Jessica" }
+      - { range: "17", text: "Thomas" }
+      - { range: "18", text: "Karen" }
+      - { range: "19", text: "Christopher" }
+      - { range: "20", text: "Nancy" }
+
+  - id: en_last
+    name: "英文姓"
+    roll: "1d20"
+    rows:
+      - { range: "1", text: "Smith" }
+      - { range: "2", text: "Johnson" }
+      - { range: "3", text: "Williams" }
+      - { range: "4", text: "Brown" }
+      - { range: "5", text: "Jones" }
+      - { range: "6", text: "Garcia" }
+      - { range: "7", text: "Miller" }
+      - { range: "8", text: "Davis" }
+      - { range: "9", text: "Rodriguez" }
+      - { range: "10", text: "Martinez" }
+      - { range: "11", text: "Hernandez" }
+      - { range: "12", text: "Lopez" }
+      - { range: "13", text: "Gonzalez" }
+      - { range: "14", text: "Wilson" }
+      - { range: "15", text: "Anderson" }
+      - { range: "16", text: "Thomas" }
+      - { range: "17", text: "Taylor" }
+      - { range: "18", text: "Moore" }
+      - { range: "19", text: "Jackson" }
+      - { range: "20", text: "Martin" }
+
+name_sets:
+  - id: cn
+    name: "中文姓名"
+    default: true
+    parts:
+      - { table: cn_surname }
+      - { table: cn_given }
+
+  - id: jp
+    name: "日文姓名"
+    parts:
+      - { table: jp_surname }
+      - { table: jp_given }
+
+  - id: en
+    name: "英文姓名"
+    parts:
+      - { table: en_first }
+      - { text: " " }
+      - { table: en_last }

@@ -1,0 +1,291 @@
+# Dungeons & Dragons 5th Edition (2014 PHB/SRD) — one self-contained rulebook.
+#
+# Everything this book needs is declared here: the check mechanic as a dice
+# expression (`roll: "1d20"` + `meets: "roll >= target"`), advantage and
+# disadvantage (bonus/penalty dice), success levels, DCs, the six ability
+# scores with their modifiers, all 18 skills, derived statistics, random
+# tables and the rolled / point-buy character generation methods. The Go
+# engine contains no D&D-specific code: it interprets these declarations
+# exactly like rulebooks/coc7.yaml.
+#
+# Texts in `rules` and the table rows are our own short summaries, not the
+# rulebook wording. SRD content is CC-BY-4.0; this file only encodes
+# mechanics.
+#
+# Check conventions (short commands — the chat-facing interface):
+#
+#   * A plain DC check is  .ra <DC>   (one d20 against the DC).
+#   * A character's own bonus is folded into the target with --mod:
+#     d20 + 5 vs DC 15  ==  .ra 15 --mod -5   (target becomes 10), or just
+#     .ra 10.  The sheet skill value (ability modifier + proficiency) is the
+#     number to subtract; the card stores it as a plain bonus.
+#   * Advantage / disadvantage are inline dice modifiers: .ra 15+1 rolls two
+#     d20 keeping the higher, .ra 15-1 keeps the lower. They cancel pairwise,
+#     and 5e does not stack multiple sources.
+#   * `checks.difficulties` declares only RELATIVE DC shortcuts (容易 -5,
+#     困难 +5, 极难 +10), e.g. .ra 困难 15; the SRD's absolute DC bands
+#     (5/10/15/20/25/30) are listed in the `rules` dictionary and are the
+#     normal way to set a check.
+#   * Generation: `.dnd` (4d6 drop lowest) and `.dndd` (27-point buy).
+schema_version: "1"
+id: "dnd5e"
+name: "Dungeons & Dragons 5th Edition (2014)"
+system_version: "0.1.0"
+rules_version: "5e-2014"
+description: "D&D 5e（2014 PHB/SRD）规则书：d20 检定、优势/劣势、DC、六属性与 18 技能、派生数值与随机表"
+# The short command this book answers to (character generation): ".dnd"
+# (4d6 drop lowest) and ".dndd" (27-point buy).
+commands: ["dnd"]
+
+# Ability scores. D&D allows 1..30 (20 is the usual character maximum, 30
+# the absolute cap for monsters and epic boons).
+attributes:
+  - { id: "STR", name: "力量", aliases: ["Strength"] }
+  - { id: "DEX", name: "敏捷", aliases: ["Dexterity"] }
+  - { id: "CON", name: "体质", aliases: ["Constitution"] }
+  - { id: "INT", name: "智力", aliases: ["Intelligence"] }
+  - { id: "WIS", name: "感知", aliases: ["Wisdom"] }
+  - { id: "CHA", name: "魅力", aliases: ["Charisma"] }
+
+# The 18 skills. The sheet value is the character's check bonus (ability
+# modifier + proficiency bonus when trained, 0 when untrained and the
+# ability modifier is not filled in). All bases are 0: the engine's d20
+# family compares the die with a target, so a skill check is rolled as
+# A skill check is rolled as `.ra <DC> --mod -<bonus>`; see the header
+# comment.
+skills:
+  acrobatics:      { base: 0, name: "杂技",   aliases: ["平衡", "特技"] }
+  animal_handling: { base: 0, name: "驯兽",   aliases: ["驯养", "动物驯养"] }
+  arcana:          { base: 0, name: "奥秘",   aliases: ["奥术", "秘法"] }
+  athletics:       { base: 0, name: "运动",   aliases: ["体术", "田径"] }
+  deception:       { base: 0, name: "欺瞒",   aliases: ["欺骗", "撒谎", "诈欺"] }
+  history:         { base: 0, name: "历史",   aliases: ["历史学"] }
+  insight:         { base: 0, name: "洞察",   aliases: ["察言观色", "读心"] }
+  intimidation:    { base: 0, name: "威吓",   aliases: ["恐吓", "威胁"] }
+  investigation:   { base: 0, name: "调查",   aliases: ["搜查", "侦查"] }
+  medicine:        { base: 0, name: "医疗",   aliases: ["医药", "医疗知识"] }
+  nature:          { base: 0, name: "自然",   aliases: ["博物学", "自然知识"] }
+  perception:      { base: 0, name: "察觉",   aliases: ["观察", "侦测"] }
+  performance:     { base: 0, name: "表演",   aliases: ["演艺", "表演艺术"] }
+  persuasion:      { base: 0, name: "说服",   aliases: ["游说", "交涉"] }
+  religion:        { base: 0, name: "宗教",   aliases: ["神学", "宗教知识"] }
+  sleight_of_hand: { base: 0, name: "巧手",   aliases: ["手上功夫", "扒窃"] }
+  stealth:         { base: 0, name: "隐匿",   aliases: ["潜行", "隐蔽"] }
+  survival:        { base: 0, name: "生存",   aliases: ["求生", "野外求生"] }
+
+limits:
+  characteristic: { min: 1, max: 30 }   # 属性值 1..30（角色通常 3..20）
+  skill:          { min: 0, max: 30 }   # 卡上的技能加值
+  target:         { min: 1, max: 30 }   # DC 与 d20 目标；30 是 SRD 的最高 DC
+  # DC 经 --mod（减去卡上的加值）或难度快捷修正后仍是目标值；
+  # 下限 0 让「加值 ≥ DC」的检出不至于报越界。
+  computed_target: { min: 0, max: 60 }
+
+# The d20 family, declared as data: one d20 per trial, bonus dice add a
+# trial and keep the higher, penalty dice keep the lower, and a roll meets
+# the target when it reaches it. No Go code knows about D&D.
+mechanic:
+  max_bonus_penalty: 10
+  roll: "1d20"
+  meets: "roll >= target"
+  bonus_keep: highest
+  penalty_keep: lowest
+  label: "d20"
+
+# Success levels, evaluated in order. The d20 family succeeds by REACHING
+# the target. 5e itself gives natural 1/20 special meaning only on attack
+# rolls and saving throws; this book keeps them as table conventions for
+# every check (documented in the `rules` dictionary), and the critical band
+# only fires when the 20 also meets the target, so an unreachable DC still
+# fails.
+checks:
+  levels:
+    - { id: fumble,   name: "大失败（天然 1）", when: "roll == 1" }
+    - { id: critical, name: "大成功（天然 20）", when: "roll == 20 && roll >= target" }
+    - { id: success,  name: "成功",             when: "roll >= target" }
+    - { id: fail,     name: "失败" }
+
+  # Relative DC shortcuts (not SRD categories; absolute DCs are in `rules`).
+  difficulties:
+    - { id: easy,     name: "容易", expr: "target-5" }
+    - { id: hard,     name: "困难", expr: "target+5" }
+    - { id: veryhard, name: "极难", expr: "target+10" }
+
+# Contests: compare declared levels, a natural 1 always loses, and a tie
+# goes to the higher target. 5e resolves a contest by comparing the two
+# d20 + bonus totals, so for exact results roll both checks and compare the
+# totals — this section is only the engine's generic approximation.
+opposed:
+  fumble_level: fumble
+  tie_break: higher_target
+
+# Derived statistics, evaluated in declaration order; integer results are
+# visible to later formulas (and to `dicegirl derived`). D&D rounds ability
+# modifiers down, and the formula language's division is floor division, so
+# (9-10)/2 = -1 exactly as the PHB requires.
+derived:
+  values:
+    - { id: str_mod, name: "力量调整值", formula: "(STR-10)/2" }
+    - { id: dex_mod, name: "敏捷调整值", formula: "(DEX-10)/2" }
+    - { id: con_mod, name: "体质调整值", formula: "(CON-10)/2" }
+    - { id: int_mod, name: "智力调整值", formula: "(INT-10)/2" }
+    - { id: wis_mod, name: "感知调整值", formula: "(WIS-10)/2" }
+    - { id: cha_mod, name: "魅力调整值", formula: "(CHA-10)/2" }
+    # Proficiency bonus by level is 2 + (level-1)/4, but the sheet has no
+    # level field yet; the level 1-4 value is declared here and higher
+    # levels can override it per character.
+    - { id: prof, name: "熟练加值（1–4 级）", formula: "2" }
+    - { id: initiative, name: "先攻", formula: "dex_mod" }
+    - { id: passive_perception, name: "被动察觉", formula: "10 + wis_mod" }
+    - { id: ac, name: "护甲等级（无甲）", formula: "10 + dex_mod" }
+    - { id: carry_capacity, name: "负重上限（磅）", formula: "STR*15" }
+    # Hit points need a class hit die; d8 (牧师/德鲁伊/武僧/游荡者/邪术师)
+    # is the middle value. 1 级 HP = 骰面 + 体质调整值；其它骰面把 8 改成
+    # 6/10/12，升级时再按平均值累加。
+    - { id: max_hp, name: "HP 上限（1 级 d8 职业）", formula: "8 + con_mod" }
+  vitals:
+    - { resource: hp, max: max_hp, initial: max_hp }
+
+# Quick-reference entries (the `.rules` dictionary). Short summaries in our
+# own words, not the rulebook wording.
+rules:
+  - id: ability_check
+    title: "属性检定与 DC"
+    keywords: ["检定", "属性检定", "dc", "难度"]
+    text: "检定 = d20 + 属性调整值（受训的技能再加熟练加值），结果不小于 DC 即成功。常用 DC：5 极易、10 简单、15 中等、20 困难、25 很难、30 几乎不可能。短指令直接比较 d20 与目标：把 DC 减去角色加值后掷 `.ra 10`，或用 `.ra 15 --mod -5`（等价）；优势写 `.ra 15+1`，劣势写 `.ra 15-1`。"
+
+  - id: advantage
+    title: "优势与劣势"
+    keywords: ["优势", "劣势", "advantage", "disadvantage", "取高", "取低"]
+    text: "优势：掷两颗 d20 取较高者；劣势：取较低者。多个优势或多个劣势不叠加，同时具有优势与劣势时二者互相抵消，恢复单颗 d20。短指令写成 `.ra 15+1`（优势）或 `.ra 15-1`（劣势），也可分开写 `.ra 15 +1`。"
+
+  - id: proficiency
+    title: "熟练加值"
+    keywords: ["熟练", "熟练加值", "proficiency", "受训"]
+    text: "熟练加值由等级决定：1–4 级 +2，5–8 级 +3，9–12 级 +4，13–16 级 +5，17–20 级 +6。技能、豁免、工具或武器只有受训时才加熟练加值；同一加值不会因多个来源重复叠加。本规则书把 1–4 级的 +2 声明为派生值 prof。"
+
+  - id: saving_throw
+    title: "豁免检定"
+    keywords: ["豁免", "豁免检定", "save", "saving throw"]
+    text: "豁免检定 = d20 + 对应属性调整值（该职业豁免受训则再加熟练加值），达到 DC 即成功。用 `.ra <DC> --mod -<加值>` 掷；优势/劣势写 `.ra 15+1` / `.ra 15-1`。死亡豁免见单独条目。"
+
+  - id: passive_check
+    title: "被动检定"
+    keywords: ["被动", "被动察觉", "passive", "passive perception"]
+    text: "被动检定 = 10 + 该检定的全部加值，用来代替反复掷骰（例如潜行对抗被动察觉）。本规则书声明被动察觉 = 10 + 感知调整值；受训察觉再加熟练加值。"
+
+  - id: attack_roll
+    title: "攻击检定与重击"
+    keywords: ["攻击", "攻击检定", "ac", "护甲等级", "重击", "暴击"]
+    text: "攻击检定 = d20 + 属性调整值 + 熟练加值（若熟练该武器），达到目标 AC 即命中。天然 20 必定命中且为重击：伤害骰数量翻倍（加值不翻倍）；天然 1 必定失手。用 `.ra <AC> --mod -<攻击加值>` 掷，重击后另掷翻倍的伤害骰。"
+
+  - id: damage_and_hp
+    title: "伤害与生命值"
+    keywords: ["伤害", "生命值", "hp", "受伤", "昏迷"]
+    text: "武器伤害 = 伤害骰 + 属性调整值（同一加值只加一次）。HP 归零时陷入昏迷，之后每回合开始做死亡豁免；受到的治疗先回到 0 以上才能行动。"
+
+  - id: death_save
+    title: "死亡豁免"
+    keywords: ["死亡豁免", "濒死", "death save", "稳定"]
+    text: "HP 为 0 时每回合掷 d20：10 及以上记一次成功，9 及以下记一次失败。累计 3 次成功即稳定，3 次失败即死亡；天然 20 直接恢复 1 点 HP，天然 1 记两次失败。受到伤害记一次失败，被重击记两次。用 `.ra 10` 掷。"
+
+  - id: rests
+    title: "短休与长休"
+    keywords: ["休息", "短休", "长休", "rest", "生命骰"]
+    text: "短休至少 1 小时：可花费生命骰恢复 HP，并恢复部分职业能力。长休至少 8 小时：HP 回满、生命骰恢复一半（至少 1 颗），并恢复大多数资源。休息能否进行由 DM 按环境裁定。"
+
+  - id: exhaustion
+    title: "力竭"
+    keywords: ["力竭", "exhaustion", "疲劳"]
+    text: "力竭分 1–6 级，效果累加：1 级属性检定有劣势；2 级速度减半；3 级攻击检定与豁免有劣势；4 级 HP 上限减半；5 级速度降为 0；6 级死亡。长休可减 1 级；本引擎用 `.ra --mod <2×等级>` 把 d20 检定的劣势折算成提高目标。"
+
+  - id: conditions
+    title: "常见状态"
+    keywords: ["状态", "condition", "中毒", "恐惧", "麻痹", "昏迷", "束缚"]
+    text: "中毒：攻击检定与属性检定有劣势。恐惧：看见来源时攻击检定与属性检定有劣势，且不能主动靠近。麻痹：失能、无法移动或说话，近战命中即重击。束缚：速度 0，攻击检定有劣势，敏捷豁免有劣势。昏迷：失能、无法移动，攻击有优势且近战命中即重击。具体豁免与解除方式见规则书。"
+
+  - id: cover
+    title: "掩体"
+    keywords: ["掩体", "cover", "半掩体", "全掩体"]
+    text: "半掩体：AC 与敏捷豁免 +2；四分之三掩体：+5；全掩体：不能成为攻击或法术的目标。掩体加值不加到豁免骰上，而是直接提高 AC 或豁免 DC 的等效难度。"
+
+  - id: spellcasting
+    title: "施法"
+    keywords: ["施法", "法术", "法术豁免", "法术攻击", "spell"]
+    text: "法术豁免 DC = 8 + 熟练加值 + 施法属性调整值；法术攻击加值 = 熟练加值 + 施法属性调整值。施法属性由职业决定（法师智力、牧师/德鲁伊/游侠感知、术士/吟游诗人/邪术师/圣武士魅力）。专注法术被打断时做体质豁免，DC = 10 与所受伤害的一半取高。"
+
+# Random tables (game content). The texts are our own summaries.
+tables:
+  - id: exhaustion
+    name: "力竭等级"
+    roll: "1d6"
+    rows:
+      - { range: "1", text: "1 级：属性检定有劣势" }
+      - { range: "2", text: "2 级：移动速度减半" }
+      - { range: "3", text: "3 级：攻击检定与豁免有劣势" }
+      - { range: "4", text: "4 级：生命值上限减半" }
+      - { range: "5", text: "5 级：移动速度降为 0，无法正常移动" }
+      - { range: "6", text: "6 级：死亡" }
+
+  - id: wild_magic_surge
+    name: "狂野魔法浪涌"
+    roll: "1d100"
+    rows:
+      - { range: "1-10",   text: "彩光迸发：10 尺内生物目眩，直到你的下个回合结束前攻击检定有劣势" }
+      - { range: "11-20",  text: "你恢复 {1d10} 点生命值（不超过上限）" }
+      - { range: "21-30",  text: "你传送到 30 尺内一个可见的空位" }
+      - { range: "31-40",  text: "你变成一株盆栽，直到你的下个回合开始（期间视为失能）" }
+      - { range: "41-50",  text: "30 尺内的火焰伤害各额外 +1d6，持续 1 分钟" }
+      - { range: "51-60",  text: "你的皮肤泛起蓝光，1 分钟内 30 尺内生物对你的攻击检定有优势" }
+      - { range: "61-70",  text: "你获得 {1d6} 点临时生命值" }
+      - { range: "71-80",  text: "你只能以雷鸣般的声音说话，1 分钟内无法低声交流" }
+      - { range: "81-90",  text: "符文浮现：1 分钟内你的法术豁免 DC +1" }
+      - { range: "91-100", text: "由 DM 再掷一次 1d10 决定一个即兴效果（或按 DM 裁定）" }
+
+  - id: short_term_madness
+    name: "短期疯狂"
+    roll: "1d100"
+    rows:
+      - { range: "1-20",   text: "退缩：失神地退回自己的世界，{1d10} 分钟内无法行动" }
+      - { range: "21-30",  text: "僵直：被恐惧钉在原地，{1d10} 分钟内既不移动也不主动攻击" }
+      - { range: "31-40",  text: "恐慌：尖叫着逃跑，持续 {1d10} 分钟，路线由 DM 决定" }
+      - { range: "41-50",  text: "攻击性：对最近的人或物发起攻击，持续 {1d10} 分钟" }
+      - { range: "51-60",  text: "幻觉：看到或听到不存在的东西，{1d10} 分钟内检定有劣势" }
+      - { range: "61-70",  text: "失语：只能说胡话或重复同一句话，持续 {1d10} 分钟" }
+      - { range: "71-80",  text: "战栗：浑身发抖，{1d10} 分钟内无法保持专注" }
+      - { range: "81-90",  text: "痴笑：无法控制地狂笑，{1d10} 分钟内隐匿与潜行自动失败" }
+      - { range: "91-100", text: "无反应：对外界刺激几乎没有反应，{1d10} 分钟内视为目盲与耳聋" }
+
+# Character generation. `.dnd` rolls 4d6 and drops the lowest die for each
+# score; `.dndd` (the detailed mode) is the 27-point buy, whose declared
+# priorities spend the budget exactly as the classic standard array
+# (15/14/13/12/10/8 in priority order).
+generation:
+  default_variant: "roll"
+  name: "D&D 5e 标准人物生成"
+  characteristics:
+    - { attr: STR, expr: "4d6kh3", min: 3, max: 18 }
+    - { attr: DEX, expr: "4d6kh3", min: 3, max: 18 }
+    - { attr: CON, expr: "4d6kh3", min: 3, max: 18 }
+    - { attr: INT, expr: "4d6kh3", min: 3, max: 18 }
+    - { attr: WIS, expr: "4d6kh3", min: 3, max: 18 }
+    - { attr: CHA, expr: "4d6kh3", min: 3, max: 18 }
+
+  point_buy:
+    attributes: [STR, DEX, CON, INT, WIS, CHA]
+    min_value: 8
+    budget: "27"
+    # 8–13 每点 1 分；14、15 各 2 分（14 合计 7 分，15 合计 9 分）。
+    costs:
+      - { min: 8,  max: 13, from: 8,  base: 0, points: 1, per: 1 }
+      - { min: 14, max: 14, from: 13, base: 5, points: 2, per: 1 }
+      - { min: 15, max: 15, from: 14, base: 7, points: 2, per: 1 }
+    # 按「标准数组」的优先顺序分配：15+14+13+12+10+8 = 27 分。
+    # 换职业时改这里的顺序与数值即可（如法师把 INT 放第一）。
+    priorities:
+      - { attr: STR, value: 15 }
+      - { attr: CON, value: 14 }
+      - { attr: DEX, value: 13 }
+      - { attr: WIS, value: 12 }
+      - { attr: CHA, value: 10 }
+      - { attr: INT, value: 8 }

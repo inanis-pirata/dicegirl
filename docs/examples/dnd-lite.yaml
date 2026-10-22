@@ -1,0 +1,115 @@
+# D&D Lite — an example rulebook for the d20 mechanic.
+#
+# It shows that a rulebook may pick any dice mechanic: this one rolls a
+# d20 and succeeds by *reaching* the target (the CoC book rolls d100 and
+# succeeds by *not exceeding* it). Nothing in the engine knows about either
+# family; the mechanic, the levels and the vocabulary are all data.
+#
+# Install it into a data root:
+#   cp docs/examples/dnd-lite.yaml <数据根>/rulebooks/
+# then:
+#   dicegirl character create --system dnd-lite --name "战士" \
+#     --set STR=16 --set DEX=12 --set CON=14 --set INT=10 --set WIS=13 --set CHA=8 --active
+#   dicegirl check --system dnd-lite --skill athletics --target 15
+#   dicegirl check --system dnd-lite --target 15 --bonus 1   # 优势：两颗 d20 取高
+#
+# Scope: this is a "lite" sheet — ability scores, a handful of skills and
+# DC checks. Full D&D needs proficiency groups, negative modifiers, spell
+# slots and per-level content, which the current schema does not model yet.
+schema_version: "1"
+id: "dnd-lite"
+name: "D&D Lite（d20 机制示例）"
+system_version: "0.1.0"
+rules_version: "5e-lite"
+description: "示例规则书：d20 机制、掷值达到难度即成功、优势/劣势"
+
+# Ability scores (3..30 in D&D; the range is rulebook data).
+attributes:
+  - { id: "STR", name: "力量", aliases: ["体格"] }
+  - { id: "DEX", name: "敏捷", aliases: ["灵巧"] }
+  - { id: "CON", name: "体质", aliases: ["坚韧"] }
+  - { id: "INT", name: "智力", aliases: ["聪慧"] }
+  - { id: "WIS", name: "感知", aliases: ["睿智"] }
+  - { id: "CHA", name: "魅力", aliases: ["魅力值"] }
+
+# Skills hold the check bonus of the sheet (0 = untrained).
+skills:
+  athletics: { base: 0, name: "运动" }
+  acrobatics: { base: 0, name: "杂技" }
+  stealth: { base: 0, name: "隐匿" }
+  perception: { base: 0, name: "察觉" }
+  arcana: { base: 0, name: "奥秘" }
+  history: { base: 0, name: "历史" }
+  persuasion: { base: 0, name: "说服" }
+
+limits:
+  characteristic: { min: 0, max: 30 }
+  skill:          { min: 0, max: 20 }
+  target:         { min: 1, max: 30 }   # 难度 DC
+
+# The d20 mechanic: one d20; bonus dice mean advantage (keep the higher),
+# penalty dice mean disadvantage (keep the lower).
+mechanic:
+  type: d20
+  max_bonus_penalty: 10
+
+# Success levels are evaluated in order: the natural 1 always fumbles, the
+# natural 20 is always a critical, otherwise the roll must reach the
+# target.
+checks:
+  levels:
+    - { id: fumble,   name: "大失败", when: "roll == 1" }
+    - { id: critical, name: "大成功", when: "roll == 20" }
+    - { id: success,  name: "成功",   when: "roll >= target" }
+    - { id: fail,     name: "失败" }
+  # Difficulty modifiers shift the DC (easy -5, hard +5, brutal +10).
+  difficulties:
+    - { id: easy,   name: "容易", expr: "target-5" }
+    - { id: hard,   name: "困难", expr: "target+5" }
+    - { id: brutal, name: "极难", expr: "target+10" }
+
+opposed:
+  fumble_level: fumble
+  tie_break: higher_target
+
+# Ability modifiers, shown by `derived` (floor division, as in D&D).
+# Note: derived ids enter the formula namespace in lower case.
+derived:
+  values:
+    - { id: str_mod, name: "力量调整值", formula: "(STR-10)/2" }
+    - { id: dex_mod, name: "敏捷调整值", formula: "(DEX-10)/2" }
+    - { id: con_mod, name: "体质调整值", formula: "(CON-10)/2" }
+    - { id: int_mod, name: "智力调整值", formula: "(INT-10)/2" }
+    - { id: wis_mod, name: "感知调整值", formula: "(WIS-10)/2" }
+    - { id: cha_mod, name: "魅力调整值", formula: "(CHA-10)/2" }
+  vitals:
+    - { resource: hp,  max: "10+CON*2+con_mod*2", initial: "10+CON*2+con_mod*2" }
+
+# Quick-reference entries (our own short summaries).
+rules:
+  - id: ability_modifier
+    title: "属性调整值"
+    keywords: ["调整值", "modifier", "属性"]
+    text: "属性调整值 = (属性值 - 10) / 2，向下取整；例如 16 → +3，8 → -1。检定时把调整值加到 d20 上与难度比较。"
+
+  - id: advantage
+    title: "优势与劣势"
+    keywords: ["优势", "劣势", "advantage", "disadvantage"]
+    text: "优势：掷两颗 d20 取高；劣势：掷两颗 d20 取低。检定表达式为 2d20kh1 / 2d20kl1。"
+
+  - id: natural_twenty
+    title: "天然 20 与天然 1"
+    keywords: ["天然20", "天然1", "大成功", "大失败"]
+    text: "掷出天然 20 视为自动成功（仍需满足其它条件），掷出天然 1 视为自动失败。"
+
+# Character generation: the classic array (4d6, drop the lowest).
+# `character generate --system dnd-lite` rolls the six scores; the skill
+# points are left to the player (the sheet starts with untrained skills).
+generation:
+  characteristics:
+    - { attr: STR, expr: "4d6kh3" }
+    - { attr: DEX, expr: "4d6kh3" }
+    - { attr: CON, expr: "4d6kh3" }
+    - { attr: INT, expr: "4d6kh3" }
+    - { attr: WIS, expr: "4d6kh3" }
+    - { attr: CHA, expr: "4d6kh3" }

@@ -1,0 +1,28 @@
+# Binaries
+/bin/
+*.exe
+*.test
+*.out
+
+# Local runtime data (characters, saves, backups)
+/data/*
+!/data/.gitkeep
+
+# Bot adapter per-scope data roots
+/botdata/
+
+# Release archives
+/dist/
+
+# Runtime logs
+*.log
+
+# Local config overrides and bot credentials
+config.local.yaml
+bot.env
+
+# Editor / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

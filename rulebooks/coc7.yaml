@@ -1,0 +1,392 @@
+# Call of Cthulhu 7th Edition — one self-contained rulebook.
+#
+# Every CoC rule used by dicegirl is declared in this file: the dice
+# mechanic, success levels and fumble conditions, opposed resolution,
+# derived-statistic formulas, resource checks (sanity) and lookup tables.
+# The Go engine contains no CoC-specific code: it interprets these
+# declarations. Users can add another game by dropping a similarly shaped
+# file into <data-root>/rulebooks/.
+#
+# Formula language (internal/engine/formula): integer variables, the
+# arithmetic + - * / (floor division), comparisons < <= > >= == !=, boolean
+# && || !, parentheses, and abs()/min()/max(). Which variables a formula
+# may see is stated in each section below.
+schema_version: "1"
+id: "coc7"
+name: "Call of Cthulhu 7th Edition"
+system_version: "0.1.0"
+rules_version: "7e"
+description: "CoC 7th Edition ruleset (Chinese labels)"
+# The default rulebook: commands that name no system (and have no active
+# character) use this book. A user book may declare its own default, which
+# then wins because user books load after the built-ins.
+default: true
+# The short command this book answers to (character generation): ".coc",
+# ".coc6d" (variant 6, detailed), ".coc 10" (ten at once).
+commands: ["coc"]
+
+# Sheet vocabulary. Labels are display names only; IDs are the canonical
+# keys stored on character sheets. `aliases` are alternative names players
+# type (rulebook data, never hard-coded in Go); they resolve after the
+# canonical ID and before the localized label.
+attributes:
+  - { id: "STR", name: "力量",   aliases: ["臂力"] }
+  - { id: "CON", name: "体质",   aliases: ["耐力"] }
+  - { id: "SIZ", name: "体型",   aliases: ["身材"] }
+  - { id: "DEX", name: "敏捷",   aliases: ["身法"] }
+  - { id: "APP", name: "外表",   aliases: ["外貌"] }
+  - { id: "INT", name: "智力",   aliases: ["头脑"] }
+  - { id: "POW", name: "意志",   aliases: ["意志力"] }
+  - { id: "EDU", name: "教育",   aliases: ["学识"] }
+  - { id: "LUCK", name: "幸运",  aliases: ["幸运值"] }
+
+# Skills are a map keyed by canonical ID. Each has either a constant base
+# or a base_expr formula over attributes.
+skills:
+  accounting:              { base: 5,  name: "会计",         aliases: ["会计学"] }
+  anthropology:             { base: 1,  name: "人类学" }
+  appraise:                 { base: 5,  name: "估价",         aliases: ["鉴定"] }
+  archaeology:              { base: 1,  name: "考古学",       aliases: ["考古"] }
+  charm:                    { base: 15, name: "魅惑",         aliases: ["魅力"] }
+  climb:                    { base: 20, name: "攀爬",         aliases: ["攀登"] }
+  computer_use:             { base: 5,  name: "计算机使用",   aliases: ["电脑使用"] }
+  credit_rating:            { base: 0,  name: "信用评级",     aliases: ["信用"] }
+  cthulhu_mythos:           { base: 0,  name: "克苏鲁神话",   aliases: ["神话"] }
+  disguise:                 { base: 5,  name: "乔装",         aliases: ["伪装"] }
+  dodge:                    { base_expr: "DEX/2", name: "闪避", aliases: ["闪躲"] }
+  drive_auto:               { base: 20, name: "汽车驾驶",     aliases: ["开车"] }
+  electrical_repair:        { base: 10, name: "电气维修",     aliases: ["电气修理"] }
+  fast_talk:                { base: 5,  name: "话术",         aliases: ["花言巧语"] }
+  fighting_brawl:           { base: 25, name: "斗殴",         aliases: ["格斗"] }
+  firearms_handgun:         { base: 20, name: "射击（手枪）", aliases: ["手枪射击"] }
+  firearms_rifle_shotgun:   { base: 25, name: "射击（步枪/霰弹枪）", aliases: ["步枪射击", "霰弹枪射击"] }
+  first_aid:                { base: 30, name: "急救",         aliases: ["救护"] }
+  history:                  { base: 5,  name: "历史",         aliases: ["历史学"] }
+  intimidate:               { base: 15, name: "恐吓",         aliases: ["威吓"] }
+  jump:                     { base: 20, name: "跳跃",         aliases: ["跳过"] }
+  language_other:           { base: 1,  name: "外语",         aliases: ["其他语言"] }
+  language_own:             { base_expr: "EDU", name: "母语", aliases: ["本国语言"] }
+  law:                      { base: 5,  name: "法律",         aliases: ["法学"] }
+  library_use:              { base: 20, name: "图书馆使用",   aliases: ["查资料"] }
+  listen:                   { base: 20, name: "聆听",         aliases: ["听觉"] }
+  locksmith:                { base: 1,  name: "开锁",         aliases: ["锁匠"] }
+  mechanical_repair:        { base: 10, name: "机械维修",     aliases: ["机械修理"] }
+  medicine:                 { base: 1,  name: "医学",         aliases: ["医疗"] }
+  natural_world:            { base: 10, name: "博物学",       aliases: ["自然科学"] }
+  navigate:                 { base: 10, name: "导航",         aliases: ["领航"] }
+  occult:                   { base: 5,  name: "神秘学",       aliases: ["玄学"] }
+  operate_heavy_machine:    { base: 1,  name: "操作重型机械", aliases: ["重型机械操作"] }
+  persuade:                 { base: 10, name: "说服",         aliases: ["说服力"] }
+  pilot:                    { base: 1,  name: "驾驶（特殊）", aliases: ["飞行"] }
+  psychology:               { base: 10, name: "心理学",       aliases: ["心理"] }
+  ride:                     { base: 5,  name: "骑术",         aliases: ["骑马"] }
+  science:                  { base: 1,  name: "科学（特殊）", aliases: ["科学"] }
+  sleight_of_hand:          { base: 10, name: "妙手",         aliases: ["手巧"] }
+  spot_hidden:              { base: 25, name: "侦查",         aliases: ["察觉"] }
+  stealth:                  { base: 20, name: "潜行",         aliases: ["隐蔽"] }
+  survival:                 { base: 10, name: "生存",         aliases: ["求生"] }
+  swim:                     { base: 20, name: "游泳",         aliases: ["潜水"] }
+  throw:                    { base: 20, name: "投掷",         aliases: ["投掷物"] }
+  track:                    { base: 10, name: "追踪",         aliases: ["追踪术"] }
+
+# Valid numeric ranges on sheets and check targets.
+# `computed_target` bounds targets derived by arithmetic from a sheet value
+# (the Dice! `.rc 体质*5` convention); it defaults to the target range.
+limits:
+  characteristic: { min: 0, max: 99 }
+  skill:          { min: 0, max: 99 }
+  target:         { min: 0, max: 99 }
+  computed_target: { min: 0, max: 999 }
+
+# The check mechanic. "percentile" is the d100 roll-under family:
+# one units d10 (1..9,0) plus one or more tens d10s (00..90), 00+0 = 100.
+# Bonus dice add a tens candidate and keep the smallest; penalty dice keep
+# the largest. Bonus and penalty dice cancel pairwise first.
+mechanic:
+  type: percentile
+  max_bonus_penalty: 100
+
+# Success levels in evaluation order: the fumble level comes first (it is
+# the exceptional worst result and must preempt the ladder below it, e.g.
+# 100 would otherwise satisfy roll <= target/5); the remaining levels run
+# best-to-worst. A level matches when its boolean `when` is true for
+# variables roll/target; the first match wins. The last level has no `when`
+# and is the catch-all.
+#
+# Fumble (Keeper Rulebook): below 50 skill fumbles on 96-100; 50 or above
+# fumbles only on 100.
+checks:
+  levels:
+    - id: fumble
+      name: "大失败"
+      when: "(target < 50 && roll >= 96) || (target >= 50 && roll >= 100)"
+    - id: extreme
+      name: "极难成功"
+      when: "roll <= target/5"
+    - id: hard
+      name: "困难成功"
+      when: "roll <= target/2"
+    - id: regular
+      name: "普通成功"
+      when: "roll <= target"
+    - id: fail
+      name: "失败"
+  # Optional explicit difficulty modifiers (Dice! .rc 困难/极难/自动成功,
+  # BCDice CC...h/e/c). The keyword is matched by name at the UI layer;
+  # expr rewrites the target through a formula whose only variable is the
+  # base target. The fumble band follows the adjusted target (e.g. 困难
+  # against 99 adjusts to 49, so 96-100 fumble, BCDice convention); success
+  # bands are read off the base target's ladder, and a roll not reaching
+  # the difficulty threshold downgrades to the catch-all failure (like
+  # BCDice, an explicit difficulty reports only reach/fail, but dicegirl
+  # keeps the band label when the roll qualifies).
+  # auto bypasses the ladder: a non-fumble against the base target maps to
+  # success_level. Rulebooks without this section accept no keywords.
+  difficulties:
+    - { id: extreme, name: "极难",     expr: "target/5" }
+    - { id: hard,    name: "困难",     expr: "target/2" }
+    - { id: auto,    name: "自动成功", auto: true, success_level: regular }
+
+# Opposed checks: higher success rank wins; a fumble always loses (two
+# fumbles tie); equal rank breaks toward the higher target, otherwise tie.
+opposed:
+  fumble_level: fumble
+  tie_break: higher_target
+
+# Build & damage bonus lookup; key is a formula over attributes. The bonus
+# is a dice expression combined with weapon damage.
+damage_bonus:
+  key: "STR + SIZ"
+  rows:
+    - { min: 2,   max: 64,  build: -2, bonus: "-2" }
+    - { min: 65,  max: 84,  build: -1, bonus: "-1" }
+    - { min: 85,  max: 124, build: 0,  bonus: "0" }
+    - { min: 125, max: 164, build: 1,  bonus: "1d4" }
+    - { min: 165, max: 204, build: 2,  bonus: "1d6" }
+    - { min: 205, max: 284, build: 3,  bonus: "2d6" }
+    - { min: 285, max: 364, build: 4,  bonus: "3d6" }
+    - { min: 365, max: 444, build: 5,  bonus: "4d6" }
+    - { min: 445, max: 999, build: 6,  bonus: "5d6" }
+
+# Derived statistics, evaluated in declaration order. A formula may use
+# attribute IDs and previously declared derived IDs. `switch` picks the
+# first matching case; `lookup` reads the damage-bonus row selected by its
+# key. `vitals` declares which resource tracks the engine can initialize
+# (current/max are formulas in the same variable namespace), and
+# initial_attributes set attributes the sheet does not yet have.
+derived:
+  values:
+    - { id: build,        name: "体格",     lookup: damage_bonus, field: build }
+    - { id: db,           name: "伤害加值", lookup: damage_bonus, field: bonus }
+    - { id: max_hp,       name: "HP",      formula: "(CON+SIZ)/10" }
+    - { id: max_mp,       name: "MP",      formula: "POW/5" }
+    - { id: initial_san,  name: "初始理智", formula: "min(POW*5, 99)" }
+    - { id: initial_luck, name: "初始幸运", formula: "min(POW*5, 99)" }
+    - id: mov
+      name: "MOV"
+      switch:
+        - { when: "STR<SIZ && DEX<SIZ",     value: 7 }
+        - { when: "STR>=SIZ && DEX>=SIZ",   value: 9 }
+        - { default: true,                  value: 8 }
+  vitals:
+    - { resource: hp,  max: max_hp,       initial: max_hp }
+    - { resource: mp,  max: max_mp,       initial: max_mp }
+    - { resource: san, max: "99",         initial: initial_san }
+  initial_attributes:
+    - { attribute: LUCK, value: initial_luck }
+
+# Resource checks are check-driven track losses (sanity, future systems may
+# add more). The check targets the resource's current value; when the
+# track does not exist yet, fallback (a formula over attributes) provides
+# it. Success means reaching success_level or better. Loss specs are
+# non-negative integers or dice expressions; after = before - loss,
+# clamped. fumble_loss: max means a fumble takes the maximum possible
+# failure loss without rolling (fixed spec is itself, dice spec uses the
+# sum of kept faces) — the CoC 7e sanity convention shared with Dice!.
+resource_checks:
+  sanity:
+    label: "理智"
+    resource: san
+    fallback: "min(POW*5, 99)"
+    success_level: regular
+    loss: { success: "0", failure: "1d10" }
+    fumble_loss: max
+    range: { min: 0, max: 99 }
+    clamp: { min: 0 }
+
+# Quick-reference entries (the `.rules` dictionary). The texts are our own
+# short summaries, not the rulebook wording.
+rules:
+  - id: fumble
+    title: "大失败"
+    keywords: ["大失败", "fumble", "失败判定"]
+    text: "技能或属性值 <50 时，掷出 96–100 判大失败；值 ≥50 时只有 100 才算大失败。大失败的结果由所用规则决定（理智检定会直接损失最大 sanity）。"
+
+  - id: success_levels
+    title: "成功等级"
+    keywords: ["成功等级", "极难成功", "困难成功", "普通成功", "骰点"]
+    text: "判定结果分四级：极难成功（掷值 ≤ 目标/5）、困难成功（≤ 目标/2）、普通成功（≤ 目标）、失败（大于目标）。目标即技能值或属性值。"
+
+  - id: bonus_penalty
+    title: "奖励骰与惩罚骰"
+    keywords: ["奖励骰", "惩罚骰", "bonus", "penalty"]
+    text: "奖励骰：额外掷十位骰，取最有利（最小）的一个；惩罚骰：同样多掷十位骰，取最不利（最大）的一个。二者先相互抵消，净奖励或净惩罚才生效。"
+
+  - id: difficulty
+    title: "难度"
+    keywords: ["困难", "极难", "自动成功", "难度"]
+    text: "困难与极难把目标改写为更低的值（困难 = 目标/2，极难 = 目标/5），大失败区间随之变化；自动成功表示只要不是大失败就算成功。"
+
+  - id: sanity
+    title: "理智检定"
+    keywords: ["理智", "san", "sc", "理智损失"]
+    text: "掷百分骰与当前理智值比较：成功不损失，失败损失声明的数值；大失败损失最大可能值（规则书声明的 fumble_loss: max）。损失后理智不会低于 0，负损失表示恢复。"
+
+  - id: madness
+    title: "疯狂症状"
+    keywords: ["疯狂", "临时疯狂", "总结性疯狂", "ti", "li"]
+    text: "临时疯狂：掷 1d10 查临时疯狂症状表；总结性疯狂：掷 1d10 查总结性疯狂表，并附一段持续时间。症状造成的长期影响由守秘人裁定。"
+
+  - id: growth
+    title: "技能成长"
+    keywords: ["成长", "技能成长", "en", "升级"]
+    text: "掷 1d100，结果 ≤ 当前技能值则成长，成长量通常是 1d10（可用 .en 指定自定义成长量）。技能值上限 99；射击（手枪）、驾驶（特殊）、母语等有特殊上限。"
+
+  - id: damage_bonus
+    title: "伤害加值"
+    keywords: ["伤害加值", "db", "体格", "build"]
+    text: "伤害加值由体格决定：体格 ≤64 为 -2，65–84 为 -1，85–124 为 0，125–164 为 +1d4，165–204 为 +1d6，205–284 为 +2d6，以此类推。"
+
+  - id: character_creation
+    title: "调查员作成"
+    keywords: ["调查员", "作成", "骰点法", "购点法", "coc", "生成"]
+    text: "骰点法：力量/体质/敏捷/外表/意志/幸运 = 3d6×5，体型/智力/教育 = (2d6+6)×5。购点法：九项属性合计 EDU×20 + INT×10 点，按费率购买（15–49 每 2 点 1 分；50–79 每 5 点 1 分；80–89 每 5 点 3 分；90–99 每 5 点 7 分），技能点数 EDU×20（上限 EDU×5），兴趣点 INT×10（上限 75）。"
+
+  - id: wounds
+    title: "重伤与濒死"
+    keywords: ["重伤", "濒死", "伤害", "恢复"]
+    text: "单次伤害超过体质值即重伤；体力归零进入濒死（每回合体质/2 的掷骰决定是否自然恢复）。具体数值与恢复方式请查阅规则书。"
+
+# Random tables (game content). The roll expression defines the domain of
+# the table; the rows must cover that domain without overlap (checked at
+# load time). A row range is a single value ("3"), an interval ("2-5") or
+# the catch-all "default" (the last row). Row texts may embed sub-roll
+# placeholders in braces ("{1d10}"): they are rolled when the row is hit
+# and replaced by their total.
+#
+# The texts below are our own short summaries, not the rulebook wording.
+tables:
+  - id: temporary_insanity
+    name: "临时疯狂症状"
+    roll: "1d10"
+    rows:
+      - { range: "1", text: "失忆：清醒后完全不记得刚才发生了什么" }
+      - { range: "2", text: "暴力：攻击周围最近的人或物" }
+      - { range: "3", text: "昏厥：当场倒地，不省人事" }
+      - { range: "4", text: "恐慌逃跑：不计后果地逃离现场" }
+      - { range: "5", text: "歇斯底里：大笑、尖叫或大哭，无法自控" }
+      - { range: "6", text: "身体失控：做出与平常截然相反的举动" }
+      - { range: "7", text: "身体伤害：自伤或伤及他人" }
+      - { range: "8", text: "痴呆：短时间失去认知，无法理解周围" }
+      - { range: "9", text: "暂时性疯狂：陷入更深的精神崩溃" }
+      - { range: "10", text: "幻觉：看到或听到不存在的事物" }
+
+  - id: summary_insanity
+    name: "总结性疯狂"
+    roll: "1d10"
+    rows:
+      - { range: "1", text: "失忆：醒来后失去一段记忆（失控 {1d10} 小时）" }
+      - { range: "2", text: "暴力：把攻击冲动转向身边的人（失控 {1d10} 小时）" }
+      - { range: "3", text: "歇斯底里：情绪彻底崩溃（失控 {1d10} 小时）" }
+      - { range: "4", text: "恐惧症：获得一种新的恐惧症（失控 {1d10} 小时）" }
+      - { range: "5", text: "强迫症：获得一种新的强迫症（失控 {1d10} 小时）" }
+      - { range: "6", text: "幻觉：分不清现实与幻觉（失控 {1d10} 小时）" }
+      - { range: "7", text: "痴呆：长时间丧失认知能力（失控 {1d10} 小时）" }
+      - { range: "8", text: "身体伤害：留下永久性的身体损伤（失控 {1d10} 小时）" }
+      - { range: "9", text: "彻底崩溃：角色永久退出本次游戏" }
+      - { range: "10", text: "短暂失神：昏迷后恢复（失控 {1d10} 小时）" }
+
+# Character generation (人物作成). Two methods are declared:
+#
+# - 骰点法 (rolled): one expression per characteristic — the default mode.
+# - 购点法 (point buy): used by the detailed creation. The budget is
+#   EDU×20 + INT×10 points; the characteristics cost points per band, the
+#   remaining points are for skills (occupation skills up to EDU×5,
+#   interest skills up to 75).
+#
+# `variants` declare other editions of the same game; `default_variant`
+# names the one used when the caller does not pick one.
+generation:
+  default_variant: "7"
+  name: "CoC 7 版"
+
+  characteristics:                 # 骰点法（7 版）
+    - { attr: STR, expr: "3d6*5" }
+    - { attr: CON, expr: "3d6*5" }
+    - { attr: SIZ, expr: "(2d6+6)*5" }
+    - { attr: DEX, expr: "3d6*5" }
+    - { attr: APP, expr: "3d6*5" }
+    - { attr: INT, expr: "(2d6+6)*5" }
+    - { attr: POW, expr: "3d6*5" }
+    - { attr: EDU, expr: "(2d6+6)*5" }
+    - { attr: LUCK, expr: "3d6*5" }
+
+  variants:
+    - id: "6"
+      name: "CoC 6 版"
+      # 6 版：三个属性掷 2d6+6、其余六个掷 2d6，再乘 5；6 版由玩家自行
+      # 挑选哪三个属性取高值，CLI 非交互版按声明顺序固定分配。
+      characteristics:
+        - { attr: STR, expr: "(2d6+6)*5" }
+        - { attr: CON, expr: "(2d6+6)*5" }
+        - { attr: DEX, expr: "(2d6+6)*5" }
+        - { attr: SIZ, expr: "2d6*5" }
+        - { attr: APP, expr: "2d6*5" }
+        - { attr: POW, expr: "2d6*5" }
+        - { attr: INT, expr: "2d6*5" }
+        - { attr: EDU, expr: "2d6*5" }
+        - { attr: LUCK, expr: "2d6*5" }
+
+  point_buy:
+    attributes: [STR, CON, SIZ, DEX, APP, INT, POW, EDU, LUCK]
+    min_value: 15
+    budget: "EDU*20 + INT*10"     # 总点数（用买到的 EDU/INT 计算）
+    # 费率：值在 [min,max] 内时花费 base + points × ceil((值-from)/per)
+    # （from 是 base 适用的起点；后三档是「超过上一档上限每 N 点若干分」）
+    costs:
+      - { min: 15, max: 49, from: 15, base: 7,  points: 1, per: 2 }
+      - { min: 50, max: 79, from: 49, base: 24, points: 1, per: 5 }
+      - { min: 80, max: 89, from: 79, base: 30, points: 3, per: 5 }
+      - { min: 90, max: 99, from: 89, base: 36, points: 7, per: 5 }
+    # 非交互自动分配：按顺序把点数花在这些属性上，剩余点数留给技能。
+    priorities:
+      - { attr: EDU, value: 60 }
+      - { attr: INT, value: 50 }
+      - { attr: STR, value: 50 }
+      - { attr: CON, value: 50 }
+      - { attr: DEX, value: 50 }
+      - { attr: APP, value: 50 }
+      - { attr: POW, value: 50 }
+      - { attr: SIZ, value: 50 }
+      - { attr: LUCK, value: 50 }
+    skills:
+      occupation_cap: "EDU*5"
+      interest_cap: 75
+
+# Skill growth (成长检定). After a successful check the keeper may let the
+# player improve a skill: roll 1d100 and compare it with the current value.
+# CoC 7e: the skill grows when the roll is the same as or lower than the
+# current value; the gain is 1d10 and skills never exceed 99.
+#
+# The condition formula sees "roll" (the d100) and "target" (the value the
+# roll is compared against; the sheet value unless the caller overrides it).
+growth_checks:
+  default:
+    condition: "roll <= target"
+    gain: "1d10"
+    cap: 99
+  # 7e special cases: these skills grow every time they are used.
+  overrides:
+    - { key: firearms_handgun, gain: "1d10", cap: 50 }
+    - { key: pilot, gain: "1d10", cap: 75 }
+    - { key: language_own, gain: "1d10", cap: 99 }
