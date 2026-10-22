@@ -4,7 +4,7 @@
 // Precedence (highest first): explicit CLI flag, DICEGIRL_* environment
 // variables, built-in defaults. The default data root is "./data" relative
 // to the working directory; this fixed rule is documented in README and
-// docs/architecture.md so platform adapters know where state lives.
+// docs/user-manual.md so platform adapters know where state lives.
 package config
 
 import (

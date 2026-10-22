@@ -7,10 +7,10 @@ import (
 	"dicegirl/internal/engine"
 )
 
-// checkScript rolls tens dice first, then the units die; values are 0-based
-// Intn results for d10.
+// checkScript rolls one d100 per trial; scripted values are 0-based Intn
+// results, so a scripted value v produces the face v+1.
 func TestBasicCheckAndMapping(t *testing.T) {
-	b := scriptedBook(t, 4, 1) // tens face 5 -> 40, units face 2 -> 2
+	b := scriptedBook(t, 41) // d100 face 42
 	res, err := b.Check(context.Background(), engine.CheckInput{Target: 60, SkillName: "心理学"})
 	if err != nil {
 		t.Fatal(err)
@@ -20,8 +20,8 @@ func TestBasicCheckAndMapping(t *testing.T) {
 	}
 }
 
-func TestDoubleZeroIs100(t *testing.T) {
-	b := scriptedBook(t, 0, 9) // tens face 1 -> 00, units face 10 -> 0
+func TestD100HundredFumbles(t *testing.T) {
+	b := scriptedBook(t, 99) // d100 face 100
 	res, err := b.Check(context.Background(), engine.CheckInput{Target: 60})
 	if err != nil {
 		t.Fatal(err)
@@ -84,51 +84,52 @@ func TestFumbleThresholds(t *testing.T) {
 	}
 }
 
-func TestBonusDiceChooseLowerTens(t *testing.T) {
-	// two tens dice: faces 8 -> 70, 2 -> 10; units face 6 -> 6
-	b := scriptedBook(t, 7, 1, 5)
+func TestBonusDiceChooseLower(t *testing.T) {
+	// Two trials: faces 8 and 2; the bonus keeps the lower.
+	b := scriptedBook(t, 7, 1)
 	res, err := b.Check(context.Background(), engine.CheckInput{Target: 80, Bonus: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(res.TensCandidates) != 2 || res.ChosenTens != 10 || res.ChosenTensIndex != 1 {
-		t.Fatalf("candidates %v chosen %d idx %d", res.TensCandidates, res.ChosenTens, res.ChosenTensIndex)
+	if res.RawRoll != 2 || res.RollDetail == nil || res.RollDetail.KeptIndex != 1 {
+		t.Fatalf("raw=%d detail=%+v", res.RawRoll, res.RollDetail)
 	}
-	if res.RawRoll != 16 {
-		t.Fatalf("raw = %d, want 16", res.RawRoll)
+	if res.RollDetail.Effect != "bonus" {
+		t.Fatalf("effect = %s", res.RollDetail.Effect)
 	}
 }
 
-func TestPenaltyDiceChooseHigherTens(t *testing.T) {
-	b := scriptedBook(t, 1, 7, 9)
+func TestPenaltyDiceChooseHigher(t *testing.T) {
+	// Two trials: faces 2 and 8; the penalty keeps the higher.
+	b := scriptedBook(t, 1, 7)
 	res, err := b.Check(context.Background(), engine.CheckInput{Target: 80, Penalty: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.ChosenTens != 70 || res.RawRoll != 70 || res.ChosenTensIndex != 1 {
-		t.Fatalf("chosen %d idx %d raw %d", res.ChosenTens, res.ChosenTensIndex, res.RawRoll)
+	if res.RawRoll != 8 || res.RollDetail == nil || res.RollDetail.KeptIndex != 1 {
+		t.Fatalf("raw=%d detail=%+v", res.RawRoll, res.RollDetail)
 	}
 }
 
 func TestBonusPenaltyCancel(t *testing.T) {
-	b := scriptedBook(t, 2, 3) // one tens die face 3 -> 20, units face 4
+	b := scriptedBook(t, 23) // one trial: face 24
 	res, err := b.Check(context.Background(), engine.CheckInput{Target: 80, Bonus: 1, Penalty: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(res.TensCandidates) != 1 || res.RawRoll != 24 {
-		t.Fatalf("candidates %v raw %d", res.TensCandidates, res.RawRoll)
+	if res.RawRoll != 24 || res.RollDetail == nil || len(res.RollDetail.Dice) != 1 {
+		t.Fatalf("raw=%d detail=%+v", res.RawRoll, res.RollDetail)
 	}
 }
 
-func TestBonusDiceDoubleZero(t *testing.T) {
-	b := scriptedBook(t, 0, 9, 9)
+func TestBonusDiceHundred(t *testing.T) {
+	b := scriptedBook(t, 99, 99) // both trials are 100
 	res, err := b.Check(context.Background(), engine.CheckInput{Target: 80, Bonus: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.ChosenTens != 0 || res.RawRoll != 100 {
-		t.Fatalf("chosen %d raw %d", res.ChosenTens, res.RawRoll)
+	if res.RawRoll != 100 {
+		t.Fatalf("raw %d, want 100", res.RawRoll)
 	}
 }
 
@@ -143,12 +144,12 @@ func TestCheckTargetValidation(t *testing.T) {
 
 func TestOpposed(t *testing.T) {
 	ctx := context.Background()
-	b1 := scriptedBook(t, 4, 1) // 42 regular
+	b1 := scriptedBook(t, 41) // 42 regular
 	a, err := b1.Check(ctx, engine.CheckInput{Target: 60})
 	if err != nil {
 		t.Fatal(err)
 	}
-	b2 := scriptedBook(t, 0, 4) // 00 + units 5 => 5 extreme
+	b2 := scriptedBook(t, 4) // d100 face 5 => 5 extreme
 	cb, err := b2.Check(ctx, engine.CheckInput{Target: 60})
 	if err != nil {
 		t.Fatal(err)

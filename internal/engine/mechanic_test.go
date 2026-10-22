@@ -27,8 +27,12 @@ limits:
   skill:          { min: 0, max: 20 }
   target:         { min: 1, max: 30 }
 mechanic:
-  type: d20
   max_bonus_penalty: 10
+  roll: "1d20"
+  meets: "roll >= target"
+  bonus_keep: highest
+  penalty_keep: lowest
+  label: "d20"
 checks:
   levels:
     - { id: fumble,   name: "大失败", when: "roll == 1" }
@@ -69,8 +73,12 @@ limits:
   skill:          { min: 0, max: 20 }
   target:         { min: 1, max: 30 }
 mechanic:
-  type: d20
   max_bonus_penalty: 10
+  roll: "1d20"
+  meets: "roll >= target"
+  bonus_keep: highest
+  penalty_keep: lowest
+  label: "d20"
 checks:
   levels:
     - { id: fumble,   name: "大失败", when: "roll == 1" }
@@ -93,15 +101,11 @@ func TestD20Check(t *testing.T) {
 	if res.RawRoll != 15 || res.LevelCode != "success" {
 		t.Fatalf("roll=%d level=%s, want 15/success", res.RawRoll, res.LevelCode)
 	}
-	if res.RollDetail == nil || res.RollDetail.Mechanic != "d20" {
+	if res.RollDetail == nil || res.RollDetail.Mechanic != "expression" {
 		t.Fatalf("roll detail = %+v", res.RollDetail)
 	}
 	if len(res.RollDetail.Dice) != 1 || res.RollDetail.Dice[0].Value != 15 {
 		t.Fatalf("dice = %+v", res.RollDetail.Dice)
-	}
-	// The legacy percentile fields stay empty for other mechanics.
-	if res.Units != 0 || len(res.TensCandidates) != 0 {
-		t.Fatalf("percentile fields must stay empty: %+v", res)
 	}
 }
 
@@ -156,9 +160,8 @@ func TestD20BonusPenalty(t *testing.T) {
 	}
 }
 
-// exprBook is the same d20 family declared as data: the check rolls a dice
-// expression and the `meets` formula decides success. No Go code knows the
-// game; only the built-in percentile family needs special handling.
+// exprBook is the data-declared mechanic: the check rolls a dice expression
+// and the `meets` formula decides success. No Go code knows the game.
 const exprBook = `schema_version: "1"
 id: "exprtest"
 name: "Expression Test"
@@ -269,11 +272,11 @@ func TestExpressionMechanicRollUnder(t *testing.T) {
 // Invalid expression declarations fail at load time.
 func TestExpressionMechanicInvalid(t *testing.T) {
 	cases := map[string]string{
-		"type and roll":  strings.Replace(exprBook, "  roll: \"1d20\"", "  type: d20\n  roll: \"1d20\"", 1),
-		"missing meets":  strings.Replace(exprBook, "  meets: \"roll >= target\"\n", "", 1),
-		"bad expression": strings.Replace(exprBook, "roll: \"1d20\"", "roll: \"1d0\"", 1),
-		"bad keep":       strings.Replace(exprBook, "bonus_keep: highest", "bonus_keep: highestest", 1),
-		"unknown meets":  strings.Replace(exprBook, "roll >= target", "roll >= missing", 1),
+		"unsupported type": strings.Replace(exprBook, "  roll: \"1d20\"", "  type: d20\n  roll: \"1d20\"", 1),
+		"missing meets":    strings.Replace(exprBook, "  meets: \"roll >= target\"\n", "", 1),
+		"bad expression":   strings.Replace(exprBook, "roll: \"1d20\"", "roll: \"1d0\"", 1),
+		"bad keep":         strings.Replace(exprBook, "bonus_keep: highest", "bonus_keep: highestest", 1),
+		"unknown meets":    strings.Replace(exprBook, "roll >= target", "roll >= missing", 1),
 	}
 	for name, src := range cases {
 		if _, err := engine.ParseBook([]byte(src), "expr.yaml", nil); err == nil {
@@ -308,18 +311,13 @@ func TestD20Difficulty(t *testing.T) {
 	}
 }
 
-// An unknown mechanic type is a configuration error, never a silent
+// A built-in mechanic type is now a configuration error, never a silent
 // fallback to another family.
 func TestUnknownMechanicRejected(t *testing.T) {
 	src := d20BookTemplate("")
-	src = replaceMechanic(src, "d20", "d7")
+	src = strings.Replace(src, "mechanic:\n", "mechanic:\n  type: d7\n", 1)
 	_, err := engine.ParseBook([]byte(src), "broken.yaml", nil)
 	if !apperr.IsCode(err, apperr.ConfigInvalid) {
 		t.Fatalf("code = %v, want CONFIG_INVALID", err)
 	}
-}
-
-// replaceMechanic swaps the declared mechanic type.
-func replaceMechanic(src, from, to string) string {
-	return strings.Replace(src, "type: "+from, "type: "+to, 1)
 }

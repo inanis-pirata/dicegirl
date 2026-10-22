@@ -209,7 +209,7 @@ func TestDefaultRulebook(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("default check code=%d err=%s", code, errs)
 	}
-	if !strings.Contains(out, "十位") || strings.Contains(out, "d20 =") {
-		t.Fatalf("default book must be coc7 (percentile): %q", out)
+	if !strings.Contains(out, "d100 =") || strings.Contains(out, "d20 =") {
+		t.Fatalf("default book must be coc7 (d100): %q", out)
 	}
 }

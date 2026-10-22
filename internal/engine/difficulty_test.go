@@ -12,14 +12,12 @@ import (
 )
 
 // TestExplicitDifficultyRewritesTarget covers hard/extreme formula
-// difficulties against the embedded coc7 book with scripted percentile rolls
-// (values are 0-based d10 draws: tens value v contributes v*10, units v
-// contributes v+1 except 9 -> 0).
+// difficulties against the embedded coc7 book with scripted d100 rolls.
 func TestExplicitDifficultyRewritesTarget(t *testing.T) {
 	ctx := context.Background()
 
-	// 50+3 = 53: against adjusted target 30 (hard of 60) this fails.
-	b := scriptedBook(t, 5, 2)
+	// 53: against adjusted target 30 (hard of 60) this fails.
+	b := scriptedBook(t, 52)
 	res, err := b.Check(ctx, engine.CheckInput{Target: 60, Difficulty: "hard", SkillName: "心理学"})
 	if err != nil {
 		t.Fatal(err)
@@ -34,16 +32,16 @@ func TestExplicitDifficultyRewritesTarget(t *testing.T) {
 		t.Fatalf("explanation: %q", res.Explanation)
 	}
 
-	// 10+3 = 13: against adjusted target 30 the ladder puts it in (6,15],
+	// 13: against adjusted target 30 the ladder puts it in (6,15],
 	// i.e. the hard band.
-	b = scriptedBook(t, 1, 2)
+	b = scriptedBook(t, 12)
 	res, err = b.Check(ctx, engine.CheckInput{Target: 60, Difficulty: "hard"})
 	if err != nil || res.LevelCode != "hard" {
 		t.Fatalf("hard success: level=%s err=%v", res.LevelCode, err)
 	}
 
-	// 10+2 = 12: extreme of 60 = 12, boundary included.
-	b = scriptedBook(t, 1, 1)
+	// 12: extreme of 60 = 12, boundary included.
+	b = scriptedBook(t, 11)
 	res, err = b.Check(ctx, engine.CheckInput{Target: 60, Difficulty: "extreme"})
 	if err != nil || res.Target != 12 || res.LevelCode != "extreme" {
 		t.Fatalf("extreme: target=%d level=%s err=%v", res.Target, res.LevelCode, err)
@@ -52,10 +50,10 @@ func TestExplicitDifficultyRewritesTarget(t *testing.T) {
 
 func TestDifficultyFumbleUsesAdjustedTarget(t *testing.T) {
 	ctx := context.Background()
-	// 90+6 = 96. Base target 99 fumbles only on 100, but hard adjusts to 49,
+	// 96. Base target 99 fumbles only on 100, but hard adjusts to 49,
 	// so 96 fumbles: fumble evaluation follows the rewritten target
 	// (BCDice convention).
-	b := scriptedBook(t, 9, 5)
+	b := scriptedBook(t, 95)
 	res, err := b.Check(ctx, engine.CheckInput{Target: 99, Difficulty: "hard"})
 	if err != nil {
 		t.Fatal(err)
@@ -68,8 +66,8 @@ func TestDifficultyFumbleUsesAdjustedTarget(t *testing.T) {
 func TestAutoSuccessDifficulty(t *testing.T) {
 	ctx := context.Background()
 
-	// 50+3 = 53 against base 60: an ordinary fail maps to regular success.
-	b := scriptedBook(t, 5, 2)
+	// 53 against base 60: an ordinary fail maps to regular success.
+	b := scriptedBook(t, 52)
 	res, err := b.Check(ctx, engine.CheckInput{Target: 60, Difficulty: "auto", SkillName: "爆破"})
 	if err != nil {
 		t.Fatal(err)
@@ -82,21 +80,21 @@ func TestAutoSuccessDifficulty(t *testing.T) {
 	}
 
 	// 96 against base 60 is not a fumble (fumble only on 100).
-	b = scriptedBook(t, 9, 5)
+	b = scriptedBook(t, 95)
 	res, err = b.Check(ctx, engine.CheckInput{Target: 60, Difficulty: "auto"})
 	if err != nil || res.LevelCode != "regular" {
 		t.Fatalf("96 vs 60: level=%s err=%v", res.LevelCode, err)
 	}
 
 	// 96 against base 40 IS a fumble and stays a fumble.
-	b = scriptedBook(t, 9, 5)
+	b = scriptedBook(t, 95)
 	res, err = b.Check(ctx, engine.CheckInput{Target: 40, Difficulty: "auto"})
 	if err != nil || res.LevelCode != "fumble" {
 		t.Fatalf("fumble under auto: level=%s err=%v", res.LevelCode, err)
 	}
 
 	// 100 is always a fumble.
-	b = scriptedBook(t, 0, 9)
+	b = scriptedBook(t, 99)
 	res, err = b.Check(ctx, engine.CheckInput{Target: 60, Difficulty: "auto"})
 	if err != nil || res.LevelCode != "fumble" {
 		t.Fatalf("100 under auto: level=%s err=%v", res.LevelCode, err)

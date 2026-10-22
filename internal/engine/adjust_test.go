@@ -24,7 +24,7 @@ func TestTargetAdjustScalesTarget(t *testing.T) {
 		{engine.TargetAdjust{Multiply: 2, Add: 5}, 125, "*2+5"},
 	}
 	for _, tc := range cases {
-		res, err := scriptedBook(t, 4, 1).Check(context.Background(), engine.CheckInput{
+		res, err := scriptedBook(t, 41).Check(context.Background(), engine.CheckInput{
 			Target:    60,
 			SkillName: "体质",
 			Adjust:    tc.adjust,
@@ -65,7 +65,7 @@ func TestTargetAdjustOutOfRange(t *testing.T) {
 
 // A difficulty works on the adjusted target, not on the raw sheet value.
 func TestTargetAdjustComposesWithDifficulty(t *testing.T) {
-	b := scriptedBook(t, 4, 1) // 42
+	b := scriptedBook(t, 41) // 42
 	res, err := b.Check(context.Background(), engine.CheckInput{
 		Target:     60,
 		SkillName:  "心理学",
@@ -104,7 +104,7 @@ func TestDeclaredAliases(t *testing.T) {
 // track maximum.
 func TestRecoveryLossRaisesTrack(t *testing.T) {
 	ctx := context.Background()
-	b := coc7Book(t, dice.New(dice.NewScriptedSource(9, 0))) // roll 100: fumble
+	b := coc7Book(t, dice.New(dice.NewScriptedSource(99))) // roll 100: fumble
 	rc, ok := b.ResourceCheck("sanity")
 	if !ok {
 		t.Fatal("rulebook declares no sanity check")
@@ -129,7 +129,7 @@ func TestRecoveryLossRaisesTrack(t *testing.T) {
 // change still starts from the track's own value.
 func TestResourceCheckCurrentOverride(t *testing.T) {
 	ctx := context.Background()
-	b := coc7Book(t, dice.New(dice.NewScriptedSource(9, 0))) // roll 100
+	b := coc7Book(t, dice.New(dice.NewScriptedSource(99))) // roll 100
 	rc, ok := b.ResourceCheck("sanity")
 	if !ok {
 		t.Fatal("rulebook declares no sanity check")

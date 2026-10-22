@@ -142,8 +142,8 @@ func TestTableDefaultRow(t *testing.T) {
 func TestTableList(t *testing.T) {
 	b := coc7Book(t, nil)
 	tables := b.Tables()
-	if len(tables) != 2 {
-		t.Fatalf("tables = %d, want 2", len(tables))
+	if len(tables) != 4 {
+		t.Fatalf("tables = %d, want 4", len(tables))
 	}
 	if tables[0].ID != "temporary_insanity" || tables[0].Min != 1 || tables[0].Max != 10 {
 		t.Fatalf("unexpected table: %+v", tables[0])

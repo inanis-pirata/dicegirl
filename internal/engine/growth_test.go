@@ -188,8 +188,12 @@ limits:
   skill:          { min: 0, max: 99 }
   target:         { min: 0, max: 99 }
 mechanic:
-  type: percentile
   max_bonus_penalty: 10
+  roll: "1d100"
+  meets: "roll <= target"
+  bonus_keep: lowest
+  penalty_keep: highest
+  label: "d100"
 checks:
   levels:
     - { id: success, name: "成功", when: "roll <= target" }

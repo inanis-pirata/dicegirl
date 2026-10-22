@@ -4,7 +4,7 @@
 
 **一本规则书 YAML = 一个游戏。** 引擎只解释声明式规则书；添加新游戏只需把同构 YAML 放进 `<数据根>/rulebooks/`，无需改 Go 代码、无需重编译。通用骰子引擎同样不依赖任何规则概念。
 
-**检定机制也是可插拔的**：规则书直接声明检定的骰子表达式与成功条件（`mechanic.roll: "1d20"` + `meets: "roll >= target"`，奖励/惩罚骰取高还是取低也由数据决定），成功等级、难度、目标算式等一切规则同样写在 YAML 里；只有百分骰这类特殊骰面语义（00/0=100、只换十位）保留内置族 `percentile`。仓库另附一份最小的 d20 示例书 [docs/examples/dnd-lite.yaml](docs/examples/dnd-lite.yaml)。
+**检定机制也是可插拔的**：规则书直接声明检定的骰子表达式与成功条件（如 CoC 用 `mechanic.roll: "1d100"` + `meets: "roll <= target"`，D&D 用 `roll: "1d20"` + `meets: "roll >= target"`，奖励/惩罚骰取高还是取低也由数据决定），成功等级、难度、目标算式等一切规则同样写在 YAML 里；引擎只有一套通用表达式机制，没有内置的游戏检定族。仓库另附一份最小的 d20 示例书 [docs/examples/dnd-lite.yaml](docs/examples/dnd-lite.yaml)。
 
 **冷热分工**：规则书与数据包是冷数据（启动读一次、人工编辑）→ 仍是 YAML 文件；角色卡、掷骰统计与团务状态是热数据（每次检定都写）→ 放在一个 SQLite 数据库 `<数据根>/dicegirl.db`（纯 Go 驱动，无需 cgo）。旧版 YAML 数据根首次打开时自动迁移。
 
@@ -153,7 +153,7 @@ make package          # 或 go run ./scripts/package
 
 压缩包内是编译好的二进制与 `run.sh` / `run.ps1`、`bot.env.example`；Linux 包另含 `install.sh` / `uninstall.sh`（systemd 部署到 `/opt/dicegirl`，数据在 `/var/lib/dicegirl`）。WSL 内构建 Linux 包：`sh scripts/build-linux-wsl.sh`。
 
-完整指令见 `dicegirl help` 与 [docs/guide.md](docs/guide.md) 第 3 节（3.5 是唯一的短指令参考表）；骰子引擎 API、**规则书 YAML 编写指南（如何用一份 YAML 加一个游戏）**见同一份指南第 1、2 节。Dice!/BCDice 风格短指令的调研、对齐矩阵与分期设计见 [docs/command-syntax-research.md](docs/command-syntax-research.md)。
+完整指令与规则书编写指南见 [docs/user-manual.md](docs/user-manual.md)；日常速查也可直接用 `dicegirl help`。
 
 ## 骰子表达式语法
 
@@ -209,7 +209,7 @@ internal/          可复用核心，不依赖任何界面层
   version/         版本号（CLI、机器人、打包共用）
 scripts/           打包工具（Go）与 WSL Linux 构建脚本
 data/              运行时数据根目录（rulebooks/ 用户规则书、datapacks/ 用户数据包、dicegirl.db 数据库）
-docs/              架构、数据格式、错误码文档
+docs/              用户手册与示例规则书
 tests/integration/ 端到端测试（进程内驱动 cmd/dicegirl/cli）
 ```
 
@@ -217,7 +217,7 @@ tests/integration/ 端到端测试（进程内驱动 cmd/dicegirl/cli）
 
 ## 配置与数据格式
 
-- 内置规则书是 [rulebooks/coc7.yaml](rulebooks/coc7.yaml)（`default: true`）与 [rulebooks/dnd5e.yaml](rulebooks/dnd5e.yaml)，编译时 `go:embed` 打包；用户规则书放在 `<数据根>/rulebooks/*.yaml`，启动时与内置书走同一加载/编译路径。规则书 schema 与公式语言详见 [docs/guide.md](docs/guide.md) 第 2 节和 [docs/data-format.md](docs/data-format.md)。
+- 内置规则书是 [rulebooks/coc7.yaml](rulebooks/coc7.yaml)（`default: true`）与 [rulebooks/dnd5e.yaml](rulebooks/dnd5e.yaml)，编译时 `go:embed` 打包；用户规则书放在 `<数据根>/rulebooks/*.yaml`，启动时与内置书走同一加载/编译路径。规则书 schema 与公式语言详见 [docs/user-manual.md](docs/user-manual.md) 第 11 节。
 - 角色卡是 `<数据根>/dicegirl.db` 里的角色卡（YAML 文档，`.pc export`/`.pc import` 是它的交换格式）；本地 CLI 状态（当前角色、默认骰、掷骰统计、先攻、牌堆）也在同一数据库里；更新前备份保留在数据库的 `card_backups` 表。
 - 数据根默认 `./data`，可用 `--data-root` 或环境变量 `DICEGIRL_DATA_ROOT` 覆盖；另支持 `DICEGIRL_BACKUPS`、`DICEGIRL_BACKUP_KEEP`（默认每角色保留 10 份备份）。
 - 文件写入采用「同目录临时文件 + fsync + 原子替换」（规则书与数据包等 YAML 文件）；角色卡等热数据走 SQLite 事务。角色 ID 由程序生成（`c-` 加 8 位十六进制），不接受显示名直接作为路径。
@@ -231,11 +231,11 @@ tests/integration/ 端到端测试（进程内驱动 cmd/dicegirl/cli）
 - P4 声明式随机表与成长：`tables`（随机表：掷骰选行、行文本可内嵌 `{1d3}` 子掷、`ti`/`li` 掷 CoC7 疯狂表）、`growth_checks`（成长检定，成长后直接写卡）、数据包（`datapacks/`：随机姓名等**非规则**内容）、随机抉择（`.ak`）
 - P5 声明式人物作成：`generation`（骰点法属性生成式、CoC6/7 变体、购点法点数池/费率/自动分配）、`.coc`/`.coc6d`/`.coc 10`、`.dnd`/`.dndd`（内置 D&D 5e：4d6 丢最低 / 27 点购点；别名由规则书声明）、`pc redo`
 - P6 通用算子与具名宏：骰组修饰符 `!`（爆骰）、`r`（重投）、`c`（成功计数，骰池语义）、`.w`/`.ww` 骰池别名；角色卡上的具名宏（`.st &名=表达式`、`.r 名`）
-- 机制可插拔：`mechanic.roll` + `meets` 用骰子表达式与布尔公式声明检定（含 `bonus_keep`/`penalty_keep`），内置 `percentile`（CoC 的特殊骰面语义）与 `d20` 族；成功等级与难度语义随声明适配。内置 D&D 5e（2014）规则书 [rulebooks/dnd5e.yaml](rulebooks/dnd5e.yaml)（d20 表达式、优势/劣势、DC、18 技能、派生数值、随机表、4d6 丢最低与 27 点购点）与示例书 `docs/examples/dnd-lite.yaml`
+- 机制可插拔：`mechanic.roll` + `meets` 用骰子表达式与布尔公式声明检定（含 `bonus_keep`/`penalty_keep`），引擎只有这一套通用机制、没有内置游戏检定族；成功等级与难度语义随声明适配。内置 D&D 5e（2014）规则书 [rulebooks/dnd5e.yaml](rulebooks/dnd5e.yaml)（d20 表达式、优势/劣势、DC、18 技能、派生数值、随机表、4d6 丢最低与 27 点购点）与示例书 `docs/examples/dnd-lite.yaml`
 - P7 团务工具：桌/团（`.table`，同一群多桌并行，默认规则书/先攻/牌堆/当前卡按桌隔离，角色卡共享）、先攻列表（`.ri`/`.init`）、牌堆与抽牌（`.deck`/`.draw`，不放回、牌库/弃牌堆分离、`deck put` 放回、`draw … 放回` 抽后放回、跨进程持久化）
 - P8 角色卡扩展：重命名（`.pc nn`）、属性覆盖复制（`.pc cpy`）、指定卡重掷（`.pc redo`/`.pc build`）、清空全部卡（`.pc clr`）
 - P9 持久化重构 + 掷骰统计：可写状态整体迁到 SQLite（冷热分工：规则仍是 YAML），`.pc stat` 记录每张卡的检定统计
-- 用户可通过投放 YAML 规则书添加自己的游戏（可声明自己的短指令别名），无需改代码（边界见 [docs/guide.md](docs/guide.md) 2.16 节）
+- 用户可通过投放 YAML 规则书添加自己的游戏（可声明自己的短指令别名），无需改代码（边界见 [docs/user-manual.md](docs/user-manual.md) 11.14 节）
 
 聊天平台能力由 QQ 适配器提供：暗骰与围观（含 `.drawh` 暗抽）、按桌个人绑卡（新建/生成的卡自动绑定当前桌）、战报记录（见上文「QQ 机器人」）。冒险日志采集、多平台适配器等尚未实现。
 

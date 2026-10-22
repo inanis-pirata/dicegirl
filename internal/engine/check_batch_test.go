@@ -9,11 +9,11 @@ import (
 )
 
 // TestCheckMany runs independent trials through the same grading pipeline:
-// scripted draws produce 53 (regular), 13 (hard) and 96 (fail against 60,
-// where only 100 fumbles).
+// scripted d100 draws produce 53 (regular), 13 (hard) and 96 (fail against
+// 60, where only 100 fumbles).
 func TestCheckMany(t *testing.T) {
 	ctx := context.Background()
-	b := scriptedBook(t, 5, 2, 1, 2, 9, 5)
+	b := scriptedBook(t, 52, 12, 95)
 
 	res, err := b.CheckMany(ctx, engine.CheckBatchInput{
 		CheckInput: engine.CheckInput{Target: 60, SkillName: "心理学"},
@@ -50,7 +50,7 @@ func TestCheckMany(t *testing.T) {
 func TestCheckManyDifficulty(t *testing.T) {
 	ctx := context.Background()
 	// 53 fails hard-of-60; 13 reaches the hard band.
-	b := scriptedBook(t, 5, 2, 1, 2)
+	b := scriptedBook(t, 52, 12)
 	res, err := b.CheckMany(ctx, engine.CheckBatchInput{
 		CheckInput: engine.CheckInput{Target: 60, Difficulty: "hard"},
 		Repeat:     2,

@@ -26,7 +26,7 @@ func sanityCheck(t *testing.T, b *engine.Book, before int, in engine.ResourceChe
 
 // A successful sanity check (raw 42 against SAN 50) loses nothing.
 func TestResourceCheckSuccess(t *testing.T) {
-	b := scriptedBook(t, 4, 1, 2) // check: faces 5,2 -> 42
+	b := scriptedBook(t, 41) // d100 face 42
 	rc, _ := b.ResourceCheck("sanity")
 	res := sanityCheck(t, b, 50, engine.ResourceCheckInput{
 		SuccessLoss: rc.DefaultSuccessLoss(),
@@ -40,7 +40,7 @@ func TestResourceCheckSuccess(t *testing.T) {
 // A failed check (raw 86 against SAN 50) rolls the failure loss (1d10 ->
 // face 3) and clamps the track.
 func TestResourceCheckFailureDiceLoss(t *testing.T) {
-	b := scriptedBook(t, 8, 5, 2) // check: faces 9,6 -> 86; loss 1d10 face 3
+	b := scriptedBook(t, 85, 2) // check: d100 86; loss 1d10 face 3
 	rc, _ := b.ResourceCheck("sanity")
 	res := sanityCheck(t, b, 50, engine.ResourceCheckInput{
 		SuccessLoss: rc.DefaultSuccessLoss(),
@@ -57,7 +57,7 @@ func TestResourceCheckFailureDiceLoss(t *testing.T) {
 
 // A fixed loss larger than the current value clamps at zero.
 func TestResourceCheckClamp(t *testing.T) {
-	b := scriptedBook(t, 9, 5) // faces 10,6 -> 96, fumble vs SAN 10
+	b := scriptedBook(t, 95) // d100 96, fumble vs SAN 10
 	res := sanityCheck(t, b, 10, engine.ResourceCheckInput{
 		SuccessLoss: engine.LossSpec{Fixed: 0},
 		FailureLoss: engine.LossSpec{Fixed: 20},
@@ -77,7 +77,7 @@ func TestResourceCheckClamp(t *testing.T) {
 // 1d4+1 must therefore cost 5 (4+1), consuming no randomness beyond the
 // check's two dice.
 func TestResourceCheckFumbleTakesMaximumLoss(t *testing.T) {
-	b := scriptedBook(t, 0, 9) // check: faces 1,10 -> 00/0 -> 100
+	b := scriptedBook(t, 99) // d100 100
 	res := sanityCheck(t, b, 50, engine.ResourceCheckInput{
 		SuccessLoss: engine.LossSpec{Fixed: 0},
 		FailureLoss: mustLossSpec(t, "1d4+1"),
@@ -96,7 +96,7 @@ func TestResourceCheckFumbleTakesMaximumLoss(t *testing.T) {
 	}
 
 	// The default failure spec "1d10" costs its 10-face maximum.
-	b2 := scriptedBook(t, 0, 9)
+	b2 := scriptedBook(t, 99)
 	rc, _ := b2.ResourceCheck("sanity")
 	res2 := sanityCheck(t, b2, 50, engine.ResourceCheckInput{
 		SuccessLoss: rc.DefaultSuccessLoss(),
@@ -108,7 +108,7 @@ func TestResourceCheckFumbleTakesMaximumLoss(t *testing.T) {
 	}
 
 	// Low SAN: 96 is already a fumble, and the maximum still applies.
-	b3 := scriptedBook(t, 9, 5) // faces 10,6 -> 96
+	b3 := scriptedBook(t, 95) // d100 96
 	res3 := sanityCheck(t, b3, 10, engine.ResourceCheckInput{
 		SuccessLoss: engine.LossSpec{Fixed: 0},
 		FailureLoss: mustLossSpec(t, "1d10"),

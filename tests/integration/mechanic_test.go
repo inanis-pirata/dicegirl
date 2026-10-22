@@ -71,18 +71,18 @@ func TestSecondMechanicRulebook(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("json check code=%d err=%s", code, errs)
 	}
-	for _, want := range []string{`"system_id":"dnd-lite"`, `"mechanic":"d20"`, `"roll_detail":{`} {
+	for _, want := range []string{`"system_id":"dnd-lite"`, `"mechanic":"expression"`, `"roll_detail":{`} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("json check missing %q: %q", want, out)
 		}
 	}
 
-	// The CoC book keeps its percentile family.
+	// The CoC book uses the generic expression family with a d100 label.
 	code, out, errs = runCLI(t, root, ".ra", "--system", "coc7", "60")
 	if code != 0 {
 		t.Fatalf("coc7 check code=%d err=%s", code, errs)
 	}
-	if !strings.Contains(out, "十位") || strings.Contains(out, "d20 =") {
-		t.Fatalf("coc7 check must keep the percentile detail: %q", out)
+	if !strings.Contains(out, "d100 =") || strings.Contains(out, "d20 =") {
+		t.Fatalf("coc7 check must use the d100 expression: %q", out)
 	}
 }

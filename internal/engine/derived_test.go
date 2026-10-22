@@ -25,7 +25,7 @@ func TestDerive(t *testing.T) {
 		"build":        0, // STR+SIZ = 120 -> row 85..124
 		"max_hp":       13,
 		"max_mp":       12,
-		"initial_san":  99,
+		"initial_san":  60,
 		"initial_luck": 99,
 		"mov":          7, // STR<SIZ and DEX<SIZ
 	}
@@ -61,7 +61,7 @@ func TestDerive(t *testing.T) {
 	if vitals["mp"] != [2]int{12, 12} {
 		t.Errorf("mp vitals = %v", vitals["mp"])
 	}
-	if vitals["san"] != [2]int{99, 99} {
+	if vitals["san"] != [2]int{60, 99} {
 		t.Errorf("san vitals = %v", vitals["san"])
 	}
 

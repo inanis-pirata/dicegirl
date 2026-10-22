@@ -255,7 +255,7 @@ func TestShortResourceChecks(t *testing.T) {
 		t.Fatalf("sc advisory code=%d out=%q err=%s", code, out, errs)
 	}
 	code, out, errs = runCLI(t, root, "sc", "0/1", "--apply")
-	if code != 0 || !strings.Contains(out, "san 99 → 99（0）已保存") {
+	if code != 0 || !strings.Contains(out, "san 55 → 55（0）已保存") {
 		t.Fatalf("sc apply code=%d out=%q err=%s", code, out, errs)
 	}
 	// rc takes the rulebook-declared check id explicitly.
@@ -289,7 +289,7 @@ func TestShortST(t *testing.T) {
 	// Show sheet with no args or `show`.
 	for _, args := range [][]string{{"st"}, {"st", "show"}} {
 		code, out, errs := runCLI(t, root, args...)
-		if code != 0 || !strings.Contains(out, "调查员甲") || !strings.Contains(out, "san 99/99") {
+		if code != 0 || !strings.Contains(out, "调查员甲") || !strings.Contains(out, "san 55/99") {
 			t.Fatalf("%v: code=%d out=%q err=%s", args, code, out, errs)
 		}
 	}
@@ -307,11 +307,11 @@ func TestShortST(t *testing.T) {
 		t.Fatalf("st adjust code=%d out=%q err=%s", code, out, errs)
 	}
 	code, out, errs = runCLI(t, root, "st", "san-1d6")
-	if code != 0 || !strings.Contains(out, "san 99 → 95（-4），掷骰 1d6") {
+	if code != 0 || !strings.Contains(out, "san 55 → 51（-4），掷骰 1d6") {
 		t.Fatalf("st dice adjust code=%d out=%q err=%s", code, out, errs)
 	}
 	code, out, errs = runCLI(t, root, "st", "show")
-	if code != 0 || !strings.Contains(out, "san 95/99") {
+	if code != 0 || !strings.Contains(out, "san 51/99") {
 		t.Fatalf("st persistence code=%d out=%q err=%s", code, out, errs)
 	}
 	code, out, errs = runCLI(t, root, "--json", "st", "STR+1")
@@ -358,12 +358,11 @@ func TestShortPCAndRH(t *testing.T) {
 }
 
 func TestShortSanityFumbleTakesMaximum(t *testing.T) {
-	// Seed 29 draws tens 90 + units 6 on the first percentile roll: 96 is a
-	// fumble against target < 50. POW=1 initializes the san track at 5.
+	// Seed 3 draws 100 on the first d100: it is a fumble against target < 50. POW=1 initializes the san track at 1.
 	root := t.TempDir()
 	createInvestigator(t, root, "倒霉蛋", "POW=1")
 
-	code, out, errs := runCLISeed(t, root, 29, "sc", "0/1d4+1")
+	code, out, errs := runCLISeed(t, root, 3, "sc", "0/1d4+1")
 	if code != 0 {
 		t.Fatalf("fumble sc code=%d stderr=%s", code, errs)
 	}
@@ -374,7 +373,7 @@ func TestShortSanityFumbleTakesMaximum(t *testing.T) {
 	}
 
 	// JSON marks the max-loss path without a loss-roll node.
-	code, out, errs = runCLISeed(t, root, 29, "--json", "sc", "0/1d4+1")
+	code, out, errs = runCLISeed(t, root, 3, "--json", "sc", "0/1d4+1")
 	if code != 0 {
 		t.Fatalf("fumble json code=%d stderr=%s", code, errs)
 	}
@@ -382,12 +381,12 @@ func TestShortSanityFumbleTakesMaximum(t *testing.T) {
 		t.Fatalf("fumble json markers missing: %q", out)
 	}
 
-	// Applied fumble clamps the track at zero (5 before, max loss 5).
-	code, out, errs = runCLISeed(t, root, 29, "sc", "0/1d4+1", "--apply")
-	if code != 0 || !strings.Contains(out, "san 5 → 0（-5）已保存") {
+	// Applied fumble clamps the track at zero (1 before, max loss 5).
+	code, out, errs = runCLISeed(t, root, 3, "sc", "0/1d4+1", "--apply")
+	if code != 0 || !strings.Contains(out, "san 1 → 0（-1）已保存") {
 		t.Fatalf("fumble apply code=%d out=%q err=%s", code, out, errs)
 	}
-	code, out, errs = runCLISeed(t, root, 29, "st", "show")
+	code, out, errs = runCLISeed(t, root, 3, "st", "show")
 	if code != 0 || !strings.Contains(out, "san 0/99") {
 		t.Fatalf("post-fumble sheet code=%d out=%q err=%s", code, out, errs)
 	}

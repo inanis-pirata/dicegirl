@@ -47,11 +47,15 @@ limits:
   skill:          { min: 0, max: 20 }
   target:         { min: 1, max: 30 }   # 难度 DC
 
-# The d20 mechanic: one d20; bonus dice mean advantage (keep the higher),
-# penalty dice mean disadvantage (keep the lower).
+# The d20 mechanic as a dice expression: one d20; bonus dice mean advantage
+# (keep the higher), penalty dice mean disadvantage (keep the lower).
 mechanic:
-  type: d20
   max_bonus_penalty: 10
+  roll: "1d20"
+  meets: "roll >= target"
+  bonus_keep: highest
+  penalty_keep: lowest
+  label: "d20"
 
 # Success levels are evaluated in order: the natural 1 always fumbles, the
 # natural 20 is always a critical, otherwise the roll must reach the

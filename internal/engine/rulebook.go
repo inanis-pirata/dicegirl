@@ -330,8 +330,8 @@ func (b *Book) compile(raw *rawBook) error {
 		}
 	}
 
-	// Mechanic: the dice resolution family (percentile, d20, ...). The
-	// engine has no hard-coded family; a rulebook picks one by name.
+	// Mechanic: the dice expression and success condition. The engine has no
+	// hard-coded family; a rulebook declares roll + meets.
 	mech, err := compileMechanic(op, raw.Mechanic)
 	if err != nil {
 		return err

@@ -71,8 +71,8 @@ func applyTargetAdjust(base int, adj TargetAdjust) (int, error) {
 	return v + adj.Add, nil
 }
 
-// CheckInput is one percentile check: target value plus bonus/penalty
-// dice counts (they cancel pairwise).
+// CheckInput is one check: target value plus bonus/penalty dice counts
+// (they cancel pairwise).
 type CheckInput struct {
 	Target    int
 	Bonus     int
@@ -113,13 +113,6 @@ type CheckResult struct {
 	// RollDetail is the mechanic-independent detail of the roll: the dice
 	// that were rolled and which one counted.
 	RollDetail *RollDetail `json:"roll_detail,omitempty"`
-	// The fields below are the legacy percentile detail (units/tens); they
-	// stay empty for other mechanics. Their JSON shape is unchanged.
-	Units           int   `json:"units"`
-	TensRolls       []int `json:"tens_rolls"`
-	TensCandidates  []int `json:"tens_candidates"`
-	ChosenTensIndex int   `json:"chosen_tens_index"`
-	ChosenTens      int   `json:"chosen_tens"`
 	// Difficulty fields are present only for explicit difficulty modifiers.
 	DifficultyID   string `json:"difficulty_id,omitempty"`
 	DifficultyName string `json:"difficulty_name,omitempty"`
@@ -132,11 +125,11 @@ type CheckResult struct {
 	Explanation    string `json:"explanation"`
 }
 
-// MaxCheckRepeat bounds the number of trials in one batch percentile check
+// MaxCheckRepeat bounds the number of trials in one batch check
 // (anti-abuse limit aligned with the chat-bot convention).
 const MaxCheckRepeat = 9
 
-// CheckBatchInput is a repeated percentile check: the same CheckInput rolled
+// CheckBatchInput is a repeated check: the same CheckInput rolled
 // independently Repeat times.
 type CheckBatchInput struct {
 	CheckInput
@@ -152,7 +145,7 @@ type CheckBatchResult struct {
 	Checks   []*CheckResult `json:"checks"`
 }
 
-// CheckMany runs Repeat independent percentile checks through the injected
+// CheckMany runs Repeat independent checks through the injected
 // generic dice roller, reusing Check (and therefore all grading semantics)
 // for every trial.
 func (b *Book) CheckMany(ctx context.Context, in CheckBatchInput) (*CheckBatchResult, error) {
@@ -212,11 +205,10 @@ func (b *Book) FindDifficulty(name string) (DifficultyInfo, bool) {
 	return DifficultyInfo{}, false
 }
 
-// Check runs a percentile check through the injected generic dice roller.
+// Check runs one check through the injected generic dice roller.
 //
-// d100 = one units d10 (faces 1..9, 10→0) plus one or more tens d10s
-// (1→00 ... 10→90); 00+0 reads as 100. Each bonus die adds a tens
-// candidate and keeps the smallest; penalty dice keep the largest.
+// The dice expression, success direction and bonus/penalty keep direction
+// all come from the rulebook's mechanic declaration.
 func (b *Book) Check(ctx context.Context, in CheckInput) (*CheckResult, error) {
 	const op = "engine.Check"
 	if !b.limits.target.Contains(in.Target) {
@@ -460,9 +452,6 @@ func (b *Book) explainCheck(in CheckInput, r *CheckResult, detailText string) st
 	}
 	if detailText != "" {
 		sb.WriteString(detailText)
-	}
-	if r.RawRoll == 100 && b.mechanic.kind.ID() == "percentile" {
-		sb.WriteString("，00/0 记为 100")
 	}
 	fmt.Fprintf(&sb, "：骰值 %d → %s", r.RawRoll, r.Label)
 	return sb.String()

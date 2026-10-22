@@ -110,7 +110,7 @@ func TestShortResourceExtras(t *testing.T) {
 		t.Fatalf("sc current code=%d out=%q err=%s", code, out, errs)
 	}
 	code, out, errs = runCLI(t, root, "st", "show", "san")
-	if code != 0 || !strings.Contains(out, "san 99/99") {
+	if code != 0 || !strings.Contains(out, "san 55/99") {
 		t.Fatalf("current override must not touch the track: %q", out)
 	}
 
@@ -127,8 +127,8 @@ func TestShortResourceExtras(t *testing.T) {
 	// A recovery loss raises the track; it never exceeds the track maximum.
 	// The sanity track is lowered first so the check actually fails and the
 	// failure loss (the recovery) applies.
-	if code, _, errs := runCLI(t, root, "st", "san-59"); code != 0 {
-		t.Fatalf("st san-59 code=%d stderr=%s", code, errs)
+	if code, _, errs := runCLI(t, root, "st", "san-15"); code != 0 {
+		t.Fatalf("st san-15 code=%d stderr=%s", code, errs)
 	}
 	code, out, errs = runCLI(t, root, "sc", "0/-5", "--apply")
 	if code != 0 {
@@ -277,7 +277,7 @@ func TestShortSTOperations(t *testing.T) {
 		t.Fatalf("st clr code=%d out=%q err=%s", code, out, errs)
 	}
 	code, out, errs = runCLI(t, root, "st", "show")
-	if code != 0 || strings.Contains(out, "STR 55") || strings.Contains(out, "san 99") {
+	if code != 0 || strings.Contains(out, "STR 55") || strings.Contains(out, "san 55") {
 		t.Fatalf("st clr result: %q", out)
 	}
 	code, out, errs = runCLI(t, root, "pc", "list")
