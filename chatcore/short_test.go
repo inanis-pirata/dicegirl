@@ -29,6 +29,40 @@ func TestShortToken(t *testing.T) {
 	}
 }
 
+func TestSplitCommandToken(t *testing.T) {
+	cases := []struct {
+		in           string
+		extra        []string
+		name, glued  string
+		prefixed, ok bool
+	}{
+		{".r3d6", nil, "r", "3d6", true, true},
+		{"r1d10", nil, "r", "1d10", false, true},
+		{".ra心理学+2", nil, "ra", "心理学+2", true, true},
+		{"ra60", nil, "ra", "60", false, true},
+		{".drawh命运", nil, "drawh", "命运", true, true},
+		{".draw命运", nil, "draw", "命运", true, true},
+		{"ww10a8", nil, "ww", "10a8", false, true},
+		{"initclr", nil, "initclr", "", false, false}, // ASCII-letter tail stays unrecognized
+		{"reset", nil, "reset", "", false, false},     // casual word, not "r est"
+		{".reset", nil, "r", "eset", true, true},      // a punctuation mark states intent
+
+		{".xyz", nil, "xyz", "", true, false},
+		{"r", nil, "r", "", false, true},
+		{".r", nil, "r", "", true, true},
+		{".coc6d", nil, "coc6d", "", true, false}, // generation aliases stay intact for bookCommand
+		{".objoin", []string{"ob", "log"}, "ob", "join", true, true},
+		{"logstop", []string{"ob", "log"}, "logstop", "", false, false},
+	}
+	for _, tc := range cases {
+		name, glued, prefixed, ok := SplitCommandToken(tc.in, tc.extra...)
+		if name != tc.name || glued != tc.glued || prefixed != tc.prefixed || ok != tc.ok {
+			t.Errorf("SplitCommandToken(%q) = %q,%q,%v,%v want %q,%q,%v,%v",
+				tc.in, name, glued, prefixed, ok, tc.name, tc.glued, tc.prefixed, tc.ok)
+		}
+	}
+}
+
 func TestParseRATokens(t *testing.T) {
 	ok := []struct {
 		in             []string
@@ -268,14 +302,15 @@ func TestNormalizeInitiativeExpr(t *testing.T) {
 func TestIsShortCommand(t *testing.T) {
 	for _, name := range []string{
 		"r", "rs", "ra", "rc", "sc", "st", "pc", "set", "ti", "li", "ak", "name", "en", "rh",
-		"w", "ww", "ri", "init", "deck", "draw", "rules", "sys", "dv", "dmg", "opp", "tb",
+		"w", "ww", "ri", "init", "deck", "draw", "drawh",
+		"rules", "sys", "dv", "dmg", "opp", "tb",
 	} {
 		if !isShortCommand(name) {
 			t.Errorf("%s must be a short command", name)
 		}
 	}
 	// The generation aliases come from the rulebooks, not from this table.
-	for _, name := range []string{"roll", "check", "resource", "table", "growth", "choice", "coc", "dnd", ""} {
+	for _, name := range []string{"roll", "check", "resource", "growth", "choice", "coc", "dnd", ""} {
 		if isShortCommand(name) {
 			t.Errorf("%s must not be a static short command", name)
 		}

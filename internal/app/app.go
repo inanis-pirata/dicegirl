@@ -28,6 +28,7 @@ type App struct {
 	registry  *rules.Registry
 	chars     character.Repository
 	state     storage.StateStore
+	tables    storage.TableStore
 	encounter storage.EncounterStore
 	decks     storage.DeckStore
 	stats     storage.StatsStore
@@ -76,6 +77,7 @@ func New(ctx context.Context, cfg *config.Config, opts ...Option) (*App, error) 
 		registry:  rules.NewRegistry(),
 		chars:     store.Cards(),
 		state:     store.State(),
+		tables:    store.Tables(),
 		encounter: store.Encounter(),
 		decks:     store.Decks(),
 		stats:     store.Stats(),
@@ -169,15 +171,47 @@ func (a *App) defaultSystemID(systemID string) (string, error) {
 }
 
 // selectSystem picks the rulebook for an operation: explicit --system wins,
-// then the character's own system; with no character and exactly one
-// rulebook loaded, that book is the default.
-func (a *App) selectSystem(systemID string, c *character.Character) (*engine.Book, error) {
+// then the character's own system, then the current table's default
+// rulebook; with none of those and exactly one rulebook loaded, that book is
+// the default.
+func (a *App) selectSystem(ctx context.Context, systemID string, c *character.Character) (*engine.Book, error) {
 	if c != nil && systemID == "" {
 		systemID = c.SystemID
+	}
+	if systemID == "" {
+		if t, err := a.currentTableRow(ctx); err != nil {
+			return nil, err
+		} else if t != nil && t.SystemID != "" {
+			systemID = t.SystemID
+		}
 	}
 	id, err := a.defaultSystemID(systemID)
 	if err != nil {
 		return nil, err
 	}
 	return a.book(id)
+}
+
+// currentTableRow loads the table the context is scoped to, mapping an
+// unscoped context to the implicit default table. A missing row is not an
+// error (fresh scope before its first table-aware command).
+func (a *App) currentTableRow(ctx context.Context) (*storage.GameTable, error) {
+	id := storage.TableFromContext(ctx)
+	if id == "" {
+		id = storage.DefaultTableID
+	}
+	t, err := a.tables.TableByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	return t, nil
+}
+
+// tableIDFromContext returns the table id implied by ctx, defaulting to the
+// implicit default table.
+func tableIDFromContext(ctx context.Context) string {
+	if id := storage.TableFromContext(ctx); id != "" {
+		return id
+	}
+	return storage.DefaultTableID
 }

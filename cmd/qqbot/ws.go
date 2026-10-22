@@ -53,6 +53,7 @@ type gateway struct {
 	intents int
 	onEvent handler
 	logger  *log.Logger
+	debug   bool
 
 	// session state, guarded across reconnects
 	stateMu sync.Mutex
@@ -61,8 +62,8 @@ type gateway struct {
 	haveSeq bool
 }
 
-func newGateway(api *apiClient, onEvent handler, logger *log.Logger) *gateway {
-	return &gateway{api: api, intents: IntentGroupAndC2C, onEvent: onEvent, logger: logger}
+func newGateway(api *apiClient, onEvent handler, logger *log.Logger, debug bool) *gateway {
+	return &gateway{api: api, intents: IntentGroupAndC2C, onEvent: onEvent, logger: logger, debug: debug}
 }
 
 // run maintains the connection until ctx is canceled. Fatal protocol
@@ -278,6 +279,10 @@ func (g *gateway) serveConn(ctx context.Context, url string) (int, error) {
 				g.haveSeq = true
 				g.stateMu.Unlock()
 			}
+			if g.debug && (env.Type == eventGroupAtMessage || env.Type == eventC2CMessage) {
+				g.logger.Printf("事件原文 type=%s seq=%d data=%s",
+					env.Type, g.seq, truncate(string(env.Data), 800))
+			}
 			switch env.Type {
 			case "READY":
 				var rd readyData
@@ -316,6 +321,11 @@ func (g *gateway) serveConn(ctx context.Context, url string) (int, error) {
 					}()
 					g.onEvent(ctx, scope, me)
 				}(me)
+			default:
+				// Lifecycle events (GROUP_ADD_ROBOT, FRIEND_ADD_ROBOT, …) and
+				// anything newer than this build: log them so a silent platform
+				// side never looks like "the bot did nothing".
+				g.logger.Printf("未处理事件 type=%s data=%s", env.Type, truncate(string(env.Data), 300))
 			}
 		}
 	}

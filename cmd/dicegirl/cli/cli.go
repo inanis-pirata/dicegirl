@@ -26,7 +26,7 @@ const usageText = `dicegirl — 本地 TRPG 骰子与规则引擎
   --seed <整数>        固定随机种子（可复现，调试用）
   -h, --help           显示帮助
 
-短指令（首字符 .。!！ 可省略；命令参数里的 --flag 写在名字前后均可）：
+指令（首字符 .。!！ 可省略，也可与首个参数粘连，如 .r3d6；--flag 写在参数前后均可）：
 
   掷骰与检定
     r [语句] [原因]                   掷骰；无语句时掷默认骰（默认 d100）
@@ -126,7 +126,7 @@ func Run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 
 	code := chatcore.Execute(ctx, application, stdin, stdout, stderr, g.json, cmd, cmdArgs)
 	if code == chatcore.Unrecognized {
-		fmt.Fprintf(stderr, "未知指令：%s（可用指令见 dicegirl help；短指令首字符可写 .。!！）\n", cmd)
+		fmt.Fprintf(stderr, "未知指令：%s（可用指令见 dicegirl help；首字符可加 .。!！ 前缀，也可省略）\n", cmd)
 		return 2
 	}
 	return code

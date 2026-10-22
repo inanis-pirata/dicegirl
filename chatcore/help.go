@@ -26,7 +26,7 @@ const HelpText = `🎲 dicegirl 指令速查（指令前缀 .。!！ 可省略�
   dmg 1d8 [--character 名字]   伤害 + 伤害加值
 
 角色卡
-  pc new 张三 --active     建卡并设为当前卡
+  pc new 张三 STR=50 CON=60  建卡（默认设为当前卡并初始化状态轨）
   pc list / pc show [名字] / pc use 名字 / pc del 名字
   pc nn 新名 / pc copy 旧 新 / pc cpy 目标=来源
   pc redo / pc stat / pc clr / pc val
@@ -40,9 +40,13 @@ const HelpText = `🎲 dicegirl 指令速查（指令前缀 .。!！ 可省略�
   coc / coc6 / coc7 / cocd / coc 10   CoC 建卡
   dnd / dndd                           D&D 5e 建卡
 
-团务与表
+先攻/牌堆
   ri +5 张三 / init / init clr   先攻
-  deck new 牌堆=卡1|卡2 / draw 牌堆 3
+  deck new 牌堆=卡1|卡2          新建牌堆（::3::卡 表示重复三张）
+  deck show [牌堆] / deck reset 牌堆 / deck clr
+  deck put 牌堆 卡面...        把卡从弃牌堆放回并重洗
+  draw 牌堆 [3] [放回]         抽牌（默认进弃牌堆；放回=抽后放回）
+  drawh 牌堆 [3]              暗抽：结果只私信抽牌人（仅机器人）
   ak add 选项... / ak get / ak show / ak clr   随机抉择
   ti / li                    临时/总结性疯狂表
   tb 表id / tb list          规则书随机表

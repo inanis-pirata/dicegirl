@@ -12,6 +12,7 @@ import (
 	"dicegirl/internal/apperr"
 	"dicegirl/internal/character"
 	"dicegirl/internal/dice"
+	"dicegirl/internal/engine"
 	"dicegirl/internal/rules"
 )
 
@@ -43,15 +44,23 @@ func ParseAssignment(s string) (Assignment, error) {
 // Assignment keys are resolved through the rule system: known characteristics
 // become attributes, known skills skills. If makeActive, it becomes the active
 // character in local state.
-func (a *App) CreateCharacter(ctx context.Context, systemID, name string, sets []Assignment, makeActive bool) (*character.Character, error) {
+//
+// The owning rulebook's character rules finish the fresh sheet right away:
+// the derived initial resource tracks (HP/MP/SAN, ...) and missing initial
+// attributes are recorded exactly as after `dv --init`. A hand-built card may
+// omit characteristics the derived formulas need; the card itself is valid,
+// so it is kept with a nil derived result and the caller can offer `dv
+// --init` once the values are filled in (rolled generation always provides
+// the full characteristic set).
+func (a *App) CreateCharacter(ctx context.Context, systemID, name string, sets []Assignment, makeActive bool) (*character.Character, *engine.DerivedResult, error) {
 	const op = "app.CreateCharacter"
 	systemID, err := a.defaultSystemID(systemID)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	sys, err := a.registry.MustGet(systemID)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	c := &character.Character{
@@ -62,36 +71,59 @@ func (a *App) CreateCharacter(ctx context.Context, systemID, name string, sets [
 		Skills:        map[string]int{},
 	}
 	if err := a.assign(sys, c, sets); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	// Generate a fresh unique ID, then validate the complete sheet.
 	for range 5 {
 		id, err := newCharacterID()
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		c.ID = id
 		if err := c.Validate(); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if err := a.validateBySystem(ctx, sys, c); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if err := a.chars.Create(ctx, c); err != nil {
 			if apperr.IsCode(err, apperr.Conflict) {
 				continue
 			}
-			return nil, err
+			return nil, nil, err
 		}
 		if makeActive {
 			if err := a.state.SetActive(ctx, c.ID); err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 		}
-		return c, nil
+		d, err := a.deriveForNewCard(ctx, c)
+		if err != nil {
+			return nil, nil, err
+		}
+		return c, d, nil
 	}
-	return nil, apperr.New(op, apperr.Internal, "could not allocate a unique character id")
+	return nil, nil, apperr.New(op, apperr.Internal, "could not allocate a unique character id")
+}
+
+// deriveForNewCard finishes a freshly created sheet with the owning
+// rulebook's derived character rules. A nil result means the sheet is too
+// incomplete for the derived formulas yet (typically a hand-built card with
+// missing characteristics); the card is already stored and stays valid.
+func (a *App) deriveForNewCard(ctx context.Context, c *character.Character) (*engine.DerivedResult, error) {
+	book, err := a.selectSystem(ctx, "", c)
+	if err != nil {
+		return nil, err
+	}
+	d, err := book.Derive(c)
+	if err != nil {
+		return nil, nil
+	}
+	if err := a.applyDerived(ctx, book, c, d, false); err != nil {
+		return nil, err
+	}
+	return d, nil
 }
 
 // GetCharacter loads a character by explicit ID, or the active character

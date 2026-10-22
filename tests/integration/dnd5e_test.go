@@ -135,6 +135,14 @@ func TestDnD5eShortCommands(t *testing.T) {
 	if strings.Count(out, "🎲") != 1 || !strings.Contains(out, "STR ") {
 		t.Fatalf(".dnd output: %q", out)
 	}
+	// The rulebook's initial HP track is derived and recorded on creation.
+	if !strings.Contains(out, "HP ") {
+		t.Fatalf(".dnd output missing derived HP: %q", out)
+	}
+	code, out, errs = runCLI(t, root, ".pc", "show")
+	if code != 0 || !strings.Contains(out, "状态：hp ") {
+		t.Fatalf("generated dnd card missing HP track: code=%d out=%q err=%s", code, out, errs)
+	}
 	code, out, errs = runCLI(t, root, ".pc", "list")
 	if code != 0 || !strings.Contains(out, "[dnd5e]") {
 		t.Fatalf(".pc list code=%d out=%q err=%s", code, out, errs)

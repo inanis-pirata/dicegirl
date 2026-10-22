@@ -19,6 +19,17 @@ func TestCharacterGeneration(t *testing.T) {
 	if !strings.Contains(out, "🎲") || !strings.Contains(out, "STR") {
 		t.Fatalf("coc output: %q", out)
 	}
+	// The rulebook's character rules finish the card after the rolled
+	// characteristics: the initial HP/MP/SAN tracks are derived and
+	// recorded right away (no manual `dv --init`).
+	if !strings.Contains(out, "HP ") || !strings.Contains(out, "SAN ") {
+		t.Fatalf("coc output missing derived vitals: %q", out)
+	}
+	code, out, errs = runCLI(t, root, "pc", "show")
+	if code != 0 || !strings.Contains(out, "状态：") ||
+		!strings.Contains(out, "hp ") || !strings.Contains(out, "san ") {
+		t.Fatalf("generated card missing derived tracks: code=%d out=%q err=%s", code, out, errs)
+	}
 	code, out, errs = runCLI(t, root, "pc", "list")
 	if code != 0 || !strings.Contains(out, "c-") {
 		t.Fatalf("generated card missing: %q %s", out, errs)
@@ -70,7 +81,7 @@ func TestCharacterGeneration(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("json coc code=%d err=%s", code, errs)
 	}
-	for _, want := range []string{`"kind":"generation"`, `"variant_id":"7"`, `"characters":[`, `"attributes":{`, `"id":"c-`} {
+	for _, want := range []string{`"kind":"generation"`, `"variant_id":"7"`, `"characters":[`, `"attributes":{`, `"id":"c-`, `"vitals":[`, `"resource":"san"`} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("json generation missing %q: %q", want, out)
 		}
@@ -114,8 +125,16 @@ func TestGeneratedCharacterIsUsable(t *testing.T) {
 	if !strings.Contains(out, "🎲") {
 		t.Fatalf("pc redo output: %q", out)
 	}
+	// Redo re-initializes the derived tracks from the new characteristics.
+	if !strings.Contains(out, "HP ") || !strings.Contains(out, "SAN ") {
+		t.Fatalf("pc redo output missing derived vitals: %q", out)
+	}
 	code, out, errs = runCLI(t, root, "st", "show")
 	if code != 0 || !strings.Contains(out, "STR") {
 		t.Fatalf("post-redo sheet: %q", out)
+	}
+	code, out, errs = runCLI(t, root, "pc", "show")
+	if code != 0 || !strings.Contains(out, "状态：") || !strings.Contains(out, "san ") {
+		t.Fatalf("post-redo card missing tracks: code=%d out=%q err=%s", code, out, errs)
 	}
 }

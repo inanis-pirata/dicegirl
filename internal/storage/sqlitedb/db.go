@@ -104,16 +104,32 @@ CREATE TABLE IF NOT EXISTS state (
 	value TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS tables (
+	id         TEXT PRIMARY KEY,
+	name       TEXT NOT NULL UNIQUE,
+	system_id  TEXT NOT NULL DEFAULT '',
+	created_at TEXT NOT NULL,
+	updated_at TEXT NOT NULL
+);
+
+-- NOTE: encounter_entries/decks already exist in pre-tables databases in
+-- their old shape; IF NOT EXISTS leaves them untouched and migrateTables
+-- rebuilds them. Any index on the new columns must be created AFTER that
+-- migration, not in this batch (a missing column aborts the whole apply).
 CREATE TABLE IF NOT EXISTS encounter_entries (
-	seq   INTEGER PRIMARY KEY AUTOINCREMENT,
-	name  TEXT NOT NULL,
-	value INTEGER NOT NULL
+	seq      INTEGER PRIMARY KEY AUTOINCREMENT,
+	table_id TEXT NOT NULL DEFAULT 'default',
+	name     TEXT NOT NULL,
+	value    INTEGER NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS decks (
-	name      TEXT PRIMARY KEY,
+	table_id  TEXT NOT NULL DEFAULT 'default',
+	name      TEXT NOT NULL,
 	cards     TEXT NOT NULL,
-	remaining TEXT NOT NULL
+	remaining TEXT NOT NULL,
+	discard   TEXT NOT NULL DEFAULT '[]',
+	PRIMARY KEY (table_id, name)
 );
 `
 
@@ -146,11 +162,127 @@ func Open(cfg *config.Config) (*Store, error) {
 		return nil, apperr.Wrap(op, apperr.StorageWriteFailed, "cannot apply database schema", err)
 	}
 	s := &Store{db: db, path: path, cfg: cfg}
+	if err := s.migrateTables(context.Background()); err != nil {
+		db.Close()
+		return nil, err
+	}
+	// The encounter index references the post-migration table_id column;
+	// create it only now so opening a pre-tables database does not fail.
+	if _, err := db.ExecContext(context.Background(),
+		`CREATE INDEX IF NOT EXISTS idx_encounter_table ON encounter_entries(table_id, seq)`); err != nil {
+		db.Close()
+		return nil, apperr.Wrap(op, apperr.StorageWriteFailed, "cannot create encounter index", err)
+	}
 	if err := s.migrateLegacyFiles(context.Background(), cfg); err != nil {
 		db.Close()
 		return nil, err
 	}
 	return s, nil
+}
+
+// migrateTables upgrades a database created before game tables existed:
+// the encounter gains a table_id column, the decks store is rebuilt with a
+// table_id and a discard pile, the legacy active-character pointer is
+// namespaced under the default table, and that table row is seeded. Fresh
+// databases already carry the new schema, so only the seed row is written.
+func (s *Store) migrateTables(ctx context.Context) error {
+	const op = "sqlitedb.migrateTables"
+	done, _, err := s.meta(ctx, "migrated_tables_v2")
+	if err != nil {
+		return err
+	}
+	if done == "1" {
+		return nil
+	}
+	if err := s.withTx(ctx, func(tx *sql.Tx) error {
+		if !columnExists(ctx, tx, "encounter_entries", "table_id") {
+			if _, err := tx.ExecContext(ctx,
+				`ALTER TABLE encounter_entries ADD COLUMN table_id TEXT NOT NULL DEFAULT 'default'`); err != nil {
+				return apperr.Wrap(op, apperr.StorageWriteFailed, "cannot upgrade encounter table", err)
+			}
+		}
+		if !columnExists(ctx, tx, "decks", "discard") {
+			if _, err := tx.ExecContext(ctx, `ALTER TABLE decks RENAME TO decks_legacy`); err != nil {
+				return apperr.Wrap(op, apperr.StorageWriteFailed, "cannot move legacy decks table", err)
+			}
+			if _, err := tx.ExecContext(ctx, schemaDecksV2); err != nil {
+				return apperr.Wrap(op, apperr.StorageWriteFailed, "cannot create decks table", err)
+			}
+			if _, err := tx.ExecContext(ctx,
+				`INSERT INTO decks (table_id, name, cards, remaining, discard)
+				 SELECT 'default', name, cards, remaining, '[]' FROM decks_legacy`); err != nil {
+				return apperr.Wrap(op, apperr.StorageWriteFailed, "cannot move legacy decks", err)
+			}
+			if _, err := tx.ExecContext(ctx, `DROP TABLE decks_legacy`); err != nil {
+				return apperr.Wrap(op, apperr.StorageWriteFailed, "cannot drop legacy decks table", err)
+			}
+		}
+		// Namespace the legacy active-character pointer under the default
+		// table; the un-namespaced key is left in place harmlessly.
+		if _, err := tx.ExecContext(ctx,
+			`INSERT OR IGNORE INTO state (key, value)
+			 SELECT 'active_character_id:default', value FROM state
+			 WHERE key = 'active_character_id'`); err != nil {
+			return apperr.Wrap(op, apperr.StorageWriteFailed, "cannot namespace active character", err)
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	if err := s.seedDefaultTable(ctx); err != nil {
+		return err
+	}
+	return s.setMeta(ctx, "migrated_tables_v2", "1")
+}
+
+// schemaDecksV2 is the decks table created during the v2 migration (the main
+// schema const already has this shape for fresh databases).
+const schemaDecksV2 = `
+CREATE TABLE decks (
+	table_id  TEXT NOT NULL DEFAULT 'default',
+	name      TEXT NOT NULL,
+	cards     TEXT NOT NULL,
+	remaining TEXT NOT NULL,
+	discard   TEXT NOT NULL DEFAULT '[]',
+	PRIMARY KEY (table_id, name)
+)`
+
+// columnExists reports whether table has a column.
+func columnExists(ctx context.Context, tx *sql.Tx, table, column string) bool {
+	rows, err := tx.QueryContext(ctx, `PRAGMA table_info(`+table+`)`)
+	if err != nil {
+		return false
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid int
+		var name, typ string
+		var notnull int
+		var dflt sql.NullString
+		var pk int
+		if err := rows.Scan(&cid, &name, &typ, &notnull, &dflt, &pk); err != nil {
+			return false
+		}
+		if name == column {
+			return true
+		}
+	}
+	return false
+}
+
+// seedDefaultTable makes sure the implicit default table exists. Its
+// system_id stays empty ("use the registry default") until a user runs
+// `table system`.
+func (s *Store) seedDefaultTable(ctx context.Context) error {
+	const op = "sqlitedb.seedDefaultTable"
+	now := formatTime(time.Now().UTC())
+	_, err := s.db.ExecContext(ctx,
+		`INSERT OR IGNORE INTO tables (id, name, system_id, created_at, updated_at)
+		 VALUES ('default', '默认桌', '', ?, ?)`, now, now)
+	if err != nil {
+		return apperr.Wrap(op, apperr.StorageWriteFailed, "cannot seed default table", err)
+	}
+	return nil
 }
 
 // Close releases the database.

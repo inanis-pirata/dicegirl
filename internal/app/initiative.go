@@ -68,12 +68,13 @@ func (a *App) RollInitiative(ctx context.Context, o InitiativeOptions) (*Initiat
 		value = r.Total + o.Modifier
 	}
 
-	entries, err := a.encounter.Initiative(ctx)
+	tid := tableIDFromContext(ctx)
+	entries, err := a.encounter.Initiative(ctx, tid)
 	if err != nil {
 		return nil, err
 	}
 	entries = append(entries, storage.InitiativeEntry{Name: o.Name, Value: value})
-	if err := a.encounter.SetInitiative(ctx, entries); err != nil {
+	if err := a.encounter.SetInitiative(ctx, tid, entries); err != nil {
 		return nil, err
 	}
 	return a.initiativeList(entries, roll), nil
@@ -82,7 +83,7 @@ func (a *App) RollInitiative(ctx context.Context, o InitiativeOptions) (*Initiat
 // ListInitiative returns the current encounter's initiative list, ordered
 // from high to low (ties keep their insertion order).
 func (a *App) ListInitiative(ctx context.Context) (*InitiativeList, error) {
-	entries, err := a.encounter.Initiative(ctx)
+	entries, err := a.encounter.Initiative(ctx, tableIDFromContext(ctx))
 	if err != nil {
 		return nil, err
 	}
@@ -91,7 +92,8 @@ func (a *App) ListInitiative(ctx context.Context) (*InitiativeList, error) {
 
 // ClearInitiative empties the current encounter's initiative list.
 func (a *App) ClearInitiative(ctx context.Context) error {
-	return a.encounter.SetInitiative(ctx, nil)
+	tid := tableIDFromContext(ctx)
+	return a.encounter.SetInitiative(ctx, tid, nil)
 }
 
 // initiativeList converts the stored entries into the ordered list.

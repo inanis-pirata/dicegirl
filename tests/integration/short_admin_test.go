@@ -24,18 +24,39 @@ func TestShortAdminCommands(t *testing.T) {
 		t.Fatalf("active id = %q", first)
 	}
 
-	// pc new does not switch the active card unless --active is given.
-	if code, _, errs := runCLI(t, root, ".pc", "new", "调查员乙", "STR=30"); code != 0 {
+	// pc new activates the card and initializes its tracks by default. A
+	// card with incomplete characteristics is still created, with a hint
+	// to finish it with `dv --init`.
+	code, out, errs = runCLI(t, root, ".pc", "new", "调查员乙", "STR=30")
+	if code != 0 {
 		t.Fatalf("pc new code=%d err=%s", code, errs)
 	}
+	if !strings.Contains(out, "属性未填全") {
+		t.Fatalf("partial card should hint dv --init: %q", out)
+	}
 	code, out, _ = runCLI(t, root, ".pc", "active")
-	if strings.TrimSpace(out) != first {
-		t.Fatalf("pc new must not switch the active card: %q", out)
+	if strings.TrimSpace(out) == first || !strings.HasPrefix(strings.TrimSpace(out), "c-") {
+		t.Fatalf("pc new must activate the new card: %q", out)
+	}
+
+	// --active=false leaves the current card untouched; with complete
+	// characteristics the derived tracks are recorded on creation.
+	code, out, errs = runCLI(t, root, ".pc", "new", "调查员丙",
+		"STR=50", "CON=60", "SIZ=70", "DEX=55", "POW=55", "EDU=70", "--active=false")
+	if code != 0 {
+		t.Fatalf("pc new --active=false code=%d err=%s", code, errs)
+	}
+	if !strings.Contains(out, "HP ") || !strings.Contains(out, "SAN ") {
+		t.Fatalf("complete card should record derived tracks: %q", out)
+	}
+	code, out, _ = runCLI(t, root, ".pc", "active")
+	if strings.TrimSpace(out) != cardIDOf(t, root, "调查员乙") {
+		t.Fatalf("--active=false must keep the active card: %q", out)
 	}
 
 	ids := characterIDs(t, root)
-	if len(ids) != 2 {
-		t.Fatalf("want 2 cards, got %d", len(ids))
+	if len(ids) != 3 {
+		t.Fatalf("want 3 cards, got %d", len(ids))
 	}
 
 	// pc use accepts the card name (players never see the generated id).
@@ -48,11 +69,11 @@ func TestShortAdminCommands(t *testing.T) {
 	}
 
 	// pc copy duplicates a card under a new name.
-	if code, _, errs := runCLI(t, root, ".pc", "copy", "调查员乙", "调查员丙"); code != 0 {
+	if code, _, errs := runCLI(t, root, ".pc", "copy", "调查员乙", "调查员丁"); code != 0 {
 		t.Fatalf("pc copy code=%d err=%s", code, errs)
 	}
 	code, out, _ = runCLI(t, root, ".pc", "list")
-	if !strings.Contains(out, "调查员丙") {
+	if !strings.Contains(out, "调查员丁") {
 		t.Fatalf("pc copy output: %q", out)
 	}
 

@@ -20,21 +20,73 @@ import (
 
 	"dicegirl/bot"
 	"dicegirl/chatcore"
+	"dicegirl/internal/apperr"
+	"dicegirl/internal/storage"
 )
 
+// scopeTableID resolves the scope's current table id; any failure falls back
+// to the implicit default table so a command can still run.
+func (h *botHandler) scopeTableID(ctx context.Context, t *bot.Tenant) string {
+	id, err := t.App.ActiveTableID(ctx)
+	if err != nil {
+		h.logger.Printf("解析当前桌失败：%v", err)
+		return storage.DefaultTableID
+	}
+	if id == "" {
+		return storage.DefaultTableID
+	}
+	return id
+}
+
+// boundCardOption validates a member's binding and returns the chatcore
+// option that selects the card. A deleted card prunes the binding; a renamed
+// card refreshes the stored name; other errors leave the binding untouched
+// and simply skip the default for this message.
+func (h *botHandler) boundCardOption(ctx context.Context, t *bot.Tenant, st *groupStore,
+	member, tableID string, b cardBinding) (bot.RunOption, bool) {
+	c, err := t.App.GetCharacter(ctx, b.CardID)
+	if err != nil {
+		if apperr.IsCode(err, apperr.NotFound) {
+			_ = st.update(func(gs *groupState) error {
+				if per, ok := gs.Bindings[member]; ok {
+					delete(per, tableID)
+				}
+				return nil
+			})
+		} else {
+			h.logger.Printf("校验绑卡失败 member=%s card=%s：%v", member, b.CardID, err)
+		}
+		return nil, false
+	}
+	if c.Name != b.CardName {
+		_ = st.update(func(gs *groupState) error {
+			if per, ok := gs.Bindings[member]; ok {
+				if cur, ok := per[tableID]; ok && cur.CardID == b.CardID {
+					cur.CardName = c.Name
+					cur.UpdatedAt = time.Now()
+					per[tableID] = cur
+				}
+			}
+			return nil
+		})
+	}
+	return bot.WithDefaultCharacter(b.CardID), true
+}
+
 // memberLabel is a human-readable stand-in for a group member (the platform
-// gives no nickname in the event): the bound card's name when known.
-func memberLabel(st *groupStore, memberOpenid string) string {
+// gives no nickname in the event): the card name bound on the current table
+// when known, otherwise any of the member's bindings.
+func memberLabel(st *groupStore, memberOpenid, tableID string) string {
 	var label string
 	st.read(func(gs *groupState) {
-		label = labelOf(gs, memberOpenid)
+		label = labelOf(gs, memberOpenid, tableID)
 	})
 	return label
 }
 
 // labelOf is memberLabel for callers that already hold the state lock.
-func labelOf(gs *groupState, memberOpenid string) string {
-	if b, ok := gs.Bindings[memberOpenid]; ok && b.CardName != "" {
+func labelOf(gs *groupState, memberOpenid, tableID string) string {
+	if b, ok := anyBinding(gs, memberOpenid, tableID); ok && b.CardName != "" {
 		return b.CardName
 	}
 	if len(memberOpenid) > 6 {
@@ -112,7 +164,9 @@ func (h *botHandler) runObserver(ctx context.Context, tenant *bot.Tenant, st *gr
 				if !ob.Enabled {
 					continue
 				}
-				label := memberLabel(st, member)
+				// The state lock is already held here, so use the
+				// no-lock label helper (memberLabel would deadlock).
+				label := labelOf(gs, member, storage.DefaultTableID)
 				if _, linked := gs.Links[member]; !linked {
 					label += "（未绑定私信）"
 				}
@@ -156,6 +210,9 @@ func onOff(st *groupStore) string {
 func (h *botHandler) runPCBinding(ctx context.Context, tenant *bot.Tenant, st *groupStore,
 	ev messageEvent, sub string, args []string, reply func(string)) {
 	member := ev.Author.MemberOpenid
+	tid := h.scopeTableID(ctx, tenant)
+	sctx := storage.WithTable(ctx, tid)
+	tableName := h.tableName(sctx, tenant, tid)
 	switch sub {
 	case "tag":
 		ref := ""
@@ -165,60 +222,104 @@ func (h *botHandler) runPCBinding(ctx context.Context, tenant *bot.Tenant, st *g
 		var id string
 		var err error
 		if ref == "" {
-			id, err = tenant.App.ActiveCharacterID(ctx)
-			if err != nil {
+			id, err = tenant.App.ActiveCharacterID(sctx)
+			if err != nil || id == "" {
 				reply("请先指定角色卡：pc tag <名字>，或先用 pc use 选一张卡")
 				return
 			}
 		} else {
-			id, err = chatcore.ResolveCardRef(ctx, tenant.App, ref)
+			id, err = chatcore.ResolveCardRef(sctx, tenant.App, ref)
 			if err != nil {
 				reply(errMessage(err))
 				return
 			}
 		}
-		c, err := tenant.App.GetCharacter(ctx, id)
+		c, err := tenant.App.GetCharacter(sctx, id)
 		if err != nil {
 			reply(errMessage(err))
 			return
 		}
 		err = st.update(func(gs *groupState) error {
-			gs.Bindings[member] = cardBinding{CardID: c.ID, CardName: c.Name, UpdatedAt: time.Now()}
+			per := gs.Bindings[member]
+			if per == nil {
+				per = map[string]cardBinding{}
+				gs.Bindings[member] = per
+			}
+			per[tid] = cardBinding{CardID: c.ID, CardName: c.Name, UpdatedAt: time.Now()}
 			return nil
 		})
 		if err != nil {
 			reply("保存绑卡失败：" + err.Error())
 			return
 		}
-		reply(fmt.Sprintf("已在本群绑定角色「%s」；之后的 ra/st/sc 等指令默认使用这张卡", c.Name))
+		reply(fmt.Sprintf("已在桌「%s」绑定角色「%s」；该桌上的 ra/st/sc 等指令默认使用这张卡", tableName, c.Name))
 	case "untag":
+		all := len(args) > 0 && args[0] == "all"
 		err := st.update(func(gs *groupState) error {
-			delete(gs.Bindings, member)
+			if all {
+				delete(gs.Bindings, member)
+				return nil
+			}
+			if per, ok := gs.Bindings[member]; ok {
+				delete(per, tid)
+				if len(per) == 0 {
+					delete(gs.Bindings, member)
+				}
+			}
 			return nil
 		})
 		if err != nil {
 			reply("保存失败：" + err.Error())
 			return
 		}
-		reply("已解除本群绑卡")
+		if all {
+			reply("已解除所有桌上的绑卡")
+		} else {
+			reply(fmt.Sprintf("已解除桌「%s」的绑卡（其他桌不受影响；pc untag all 解除全部）", tableName))
+		}
 	case "grp":
+		list, err := tenant.App.ListGameTables(sctx)
+		if err != nil {
+			reply("读取桌列表失败：" + err.Error())
+			return
+		}
+		names := map[string]string{}
+		for _, t := range list.Tables {
+			names[t.ID] = t.Name
+		}
 		var lines []string
 		st.read(func(gs *groupState) {
-			for m, b := range gs.Bindings {
-				suffix := ""
-				if _, linked := gs.Links[m]; !linked {
-					suffix = "（未绑定私信）"
+			for m, per := range gs.Bindings {
+				for tableID, b := range per {
+					name := names[tableID]
+					if name == "" {
+						name = tableID
+					}
+					suffix := ""
+					if _, linked := gs.Links[m]; !linked {
+						suffix = "（未绑定私信）"
+					}
+					lines = append(lines, fmt.Sprintf("[%s] %s → %s%s",
+						name, labelOf(gs, m, tableID), b.CardName, suffix))
 				}
-				lines = append(lines, fmt.Sprintf("%s → %s%s", labelOf(gs, m), b.CardName, suffix))
 			}
 		})
 		sort.Strings(lines)
 		if len(lines) == 0 {
-			reply("本群还没有人绑卡（pc tag <名字>）")
+			reply("本群还没有人绑卡（pc tag <名字>；绑卡按桌隔离）")
 			return
 		}
-		reply("本群绑卡：\n" + strings.Join(lines, "\n"))
+		reply("本群绑卡（按桌）：\n" + strings.Join(lines, "\n"))
 	}
+}
+
+// tableName returns the display name of a table, falling back to the id.
+func (h *botHandler) tableName(ctx context.Context, tenant *bot.Tenant, tableID string) string {
+	t, err := tenant.App.Table(ctx, tableID)
+	if err != nil || t == nil {
+		return tableID
+	}
+	return t.Name
 }
 
 func errMessage(err error) string {

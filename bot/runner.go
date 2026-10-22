@@ -19,6 +19,7 @@ type runOptions struct {
 	jsonMode         bool
 	autoApply        bool
 	defaultCharacter string
+	cardCreated      func(id, name string)
 }
 
 // WithJSON requests structured JSON output instead of human-readable text.
@@ -36,6 +37,13 @@ func WithAutoApply() RunOption {
 // one. Chat adapters pass the sender's bound card here.
 func WithDefaultCharacter(id string) RunOption {
 	return func(o *runOptions) { o.defaultCharacter = id }
+}
+
+// WithCardCreatedHook installs a callback fired after a command activates a
+// newly created card. Group adapters use it to auto-bind the new card to the
+// sender on the current table.
+func WithCardCreatedHook(hook func(id, name string)) RunOption {
+	return func(o *runOptions) { o.cardCreated = hook }
 }
 
 // Result is the rendered outcome of one inbound command line.
@@ -77,6 +85,9 @@ func (m *Manager) RunLine(ctx context.Context, kind, id, line string, opts ...Ru
 	}
 	if ro.defaultCharacter != "" {
 		execOpts = append(execOpts, chatcore.WithDefaultCharacter(ro.defaultCharacter))
+	}
+	if ro.cardCreated != nil {
+		execOpts = append(execOpts, chatcore.WithCardCreatedHook(ro.cardCreated))
 	}
 	res := Result{}
 	t.Lock(func() {

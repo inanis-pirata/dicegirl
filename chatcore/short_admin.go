@@ -1,10 +1,8 @@
 package chatcore
 
-// Administrative short commands: rulebook/data-pack inspection, card
-// management that is not part of the chat flow, and the derived/damage/
-// opposed/table helpers. They replace the former long commands
-// (systems/character/config/derived/damage/opposed/table) so the CLI has a
-// single, chat-style command surface.
+// Rulebook/data-pack inspection, card management that is not part of the
+// chat flow, and the derived/damage/opposed/table helpers: every command the
+// CLI and the adapters share goes through this one chat-style surface.
 
 import (
 	"context"
@@ -16,6 +14,8 @@ import (
 
 	"dicegirl/internal/app"
 	"dicegirl/internal/apperr"
+	"dicegirl/internal/character"
+	"dicegirl/internal/engine"
 )
 
 // shortSYS lists rulebooks or validates every loaded rulebook/data pack.
@@ -219,21 +219,24 @@ func shortOPP(ctx context.Context, args []string, a *app.App, r *Renderer, stder
 
 // --- card management (pc ...) ---
 
-// shortPCNew creates a card by hand.
+// shortPCNew creates a card by hand. The new card is activated and its
+// derived tracks are initialized by default (same rules as rolled
+// generation); --active=false leaves the current card untouched and a card
+// with incomplete characteristics keeps the tracks for a later `dv --init`.
 //
-//	pc new <名称> [K=V...] [--system <规则书>] [--active]
+//	pc new <名称> [K=V...] [--system <规则书>] [--active=false]
 func shortPCNew(ctx context.Context, args []string, a *app.App, r *Renderer, stderr io.Writer) int {
 	fs := flag.NewFlagSet("pc new", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	system := fs.String("system", "", "规则书 ID（省略用默认书）")
-	active := fs.Bool("active", false, "创建后设为当前角色")
+	active := fs.Bool("active", true, "创建后设为当前角色（--active=false 不切换）")
 	sets := multiFlag{}
 	fs.Var(&sets, "set", "属性/技能赋值 KEY=VALUE，可重复")
 	if err := parseSub(fs, args); err != nil {
 		return 2
 	}
 	if fs.NArg() < 1 {
-		fmt.Fprintln(stderr, "用法：pc new <名称> [KEY=VALUE...] [--system <规则书>] [--active]")
+		fmt.Fprintln(stderr, "用法：pc new <名称> [KEY=VALUE...] [--system <规则书>] [--active=false]")
 		return 2
 	}
 	pairs := append(append([]string{}, sets.values...), fs.Args()[1:]...)
@@ -241,14 +244,35 @@ func shortPCNew(ctx context.Context, args []string, a *app.App, r *Renderer, std
 	if err != nil {
 		return PrintError(stderr, err)
 	}
-	c, err := a.CreateCharacter(ctx, *system, fs.Arg(0), assignments, *active)
+	c, derived, err := a.CreateCharacter(ctx, *system, fs.Arg(0), assignments, *active)
 	if err != nil {
 		return PrintError(stderr, err)
 	}
-	if err := r.CreatedCharacter(c); err != nil {
+	if *active {
+		notifyCardCreated(ctx, c.ID, c.Name)
+	}
+	if err := r.CreatedCharacter(c, createdNotice(c, derived)); err != nil {
 		return PrintError(stderr, err)
 	}
 	return 0
+}
+
+// createdNotice is the extra line after a card creation: the derived
+// resource tracks just recorded, or the `dv --init` hint when the sheet was
+// too incomplete to derive them yet.
+func createdNotice(c *character.Character, derived *engine.DerivedResult) string {
+	switch {
+	case derived != nil && len(derived.Vitals) > 0:
+		tracks := make([]string, 0, len(derived.Vitals))
+		for _, v := range derived.Vitals {
+			tracks = append(tracks, fmt.Sprintf("%s %d/%d", strings.ToUpper(v.Resource), v.Current, v.Max))
+		}
+		return "状态：" + strings.Join(tracks, "，")
+	case len(c.Resources) == 0 && derived == nil:
+		return "属性未填全，资源轨尚未初始化；补齐属性后可用 dv --init 初始化"
+	default:
+		return ""
+	}
 }
 
 // shortPCUse switches the active card.
@@ -339,7 +363,7 @@ func shortPCCopy(ctx context.Context, args []string, a *app.App, r *Renderer, st
 	if err != nil {
 		return PrintError(stderr, err)
 	}
-	if err := r.CreatedCharacter(c); err != nil {
+	if err := r.CreatedCharacter(c, ""); err != nil {
 		return PrintError(stderr, err)
 	}
 	return 0
@@ -404,7 +428,7 @@ func shortPCImport(ctx context.Context, args []string, a *app.App, r *Renderer, 
 	if err != nil {
 		return PrintError(stderr, err)
 	}
-	if err := r.CreatedCharacter(c); err != nil {
+	if err := r.CreatedCharacter(c, ""); err != nil {
 		return PrintError(stderr, err)
 	}
 	return 0

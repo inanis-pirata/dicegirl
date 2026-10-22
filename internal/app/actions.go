@@ -169,7 +169,7 @@ func (a *App) resolveCheck(ctx context.Context, t CheckTarget) (*engine.Book, en
 		if err != nil {
 			return nil, engine.CheckInput{}, "", err
 		}
-		book, err := a.selectSystem(t.SystemID, c)
+		book, err := a.selectSystem(ctx, t.SystemID, c)
 		if err != nil {
 			return nil, engine.CheckInput{}, "", err
 		}
@@ -266,21 +266,21 @@ func (a *App) skillContext(ctx context.Context, systemID, charID string) (*engin
 		charID = active
 	}
 	if charID == "" {
-		book, err := a.selectSystem(systemID, nil)
+		book, err := a.selectSystem(ctx, systemID, nil)
 		return book, nil, err
 	}
 	c, err := a.chars.Get(ctx, charID)
 	if err != nil {
 		return nil, nil, err
 	}
-	book, err := a.selectSystem(systemID, c)
+	book, err := a.selectSystem(ctx, systemID, c)
 	return book, c, err
 }
 
 // RunOpposed runs two target-only checks and resolves them per the
 // rulebook's opposed policy.
 func (a *App) RunOpposed(ctx context.Context, systemID string, targetA, targetB int) (*engine.OpposedResult, error) {
-	book, err := a.selectSystem(systemID, nil)
+	book, err := a.selectSystem(ctx, systemID, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -320,7 +320,7 @@ func (a *App) RunResourceCheck(ctx context.Context, o ResourceOptions) (*engine.
 	if err != nil {
 		return nil, err
 	}
-	book, err := a.selectSystem(o.SystemID, c)
+	book, err := a.selectSystem(ctx, o.SystemID, c)
 	if err != nil {
 		return nil, err
 	}
@@ -413,7 +413,7 @@ func (a *App) RunDamage(ctx context.Context, o DamageOptions) (*engine.DamageRes
 	} else if id != "" {
 		c, _ = a.chars.Get(ctx, id)
 	}
-	book, err := a.selectSystem(o.SystemID, c)
+	book, err := a.selectSystem(ctx, o.SystemID, c)
 	if err != nil {
 		return nil, err
 	}
@@ -436,7 +436,7 @@ func (a *App) RunDerived(ctx context.Context, o DerivedOptions) (*engine.Derived
 	if err != nil {
 		return nil, nil, err
 	}
-	book, err := a.selectSystem(o.SystemID, c)
+	book, err := a.selectSystem(ctx, o.SystemID, c)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -445,36 +445,44 @@ func (a *App) RunDerived(ctx context.Context, o DerivedOptions) (*engine.Derived
 		return nil, nil, err
 	}
 	if o.Initialize {
-		if c.Resources == nil {
-			c.Resources = map[string]character.Resource{}
-		}
-		for _, v := range d.Vitals {
-			if !o.Overwrite {
-				if _, exists := c.Resources[v.Resource]; exists {
-					continue
-				}
-			}
-			c.Resources[v.Resource] = character.Resource{Current: v.Current, Max: v.Max}
-		}
-		for _, ia := range d.InitAttributes {
-			if _, exists := c.Attributes[ia.Attribute]; !exists {
-				if c.Attributes == nil {
-					c.Attributes = map[string]int{}
-				}
-				c.Attributes[ia.Attribute] = ia.Value
-			}
-		}
-		if err := c.Validate(); err != nil {
-			return nil, nil, err
-		}
-		if err := a.validateBySystem(ctx, book, c); err != nil {
-			return nil, nil, err
-		}
-		if err := a.chars.Update(ctx, c); err != nil {
+		if err := a.applyDerived(ctx, book, c, d, o.Overwrite); err != nil {
 			return nil, nil, err
 		}
 	}
 	return d, c, nil
+}
+
+// applyDerived records the rulebook-derived initial resource tracks and
+// initial attributes on a sheet, validates and persists it. With overwrite,
+// tracks that already exist are reset; otherwise only missing tracks are
+// created. Initial attributes are always only filled in when missing.
+func (a *App) applyDerived(ctx context.Context, book *engine.Book, c *character.Character, d *engine.DerivedResult, overwrite bool) error {
+	if c.Resources == nil {
+		c.Resources = map[string]character.Resource{}
+	}
+	for _, v := range d.Vitals {
+		if !overwrite {
+			if _, exists := c.Resources[v.Resource]; exists {
+				continue
+			}
+		}
+		c.Resources[v.Resource] = character.Resource{Current: v.Current, Max: v.Max}
+	}
+	for _, ia := range d.InitAttributes {
+		if _, exists := c.Attributes[ia.Attribute]; !exists {
+			if c.Attributes == nil {
+				c.Attributes = map[string]int{}
+			}
+			c.Attributes[ia.Attribute] = ia.Value
+		}
+	}
+	if err := c.Validate(); err != nil {
+		return err
+	}
+	if err := a.validateBySystem(ctx, book, c); err != nil {
+		return err
+	}
+	return a.chars.Update(ctx, c)
 }
 
 // applyResource writes one proposed resource change, deriving the track

@@ -78,7 +78,7 @@ dicegirl .rules 优势              # 规则速查（.rules list 列出全部词
 | 角色卡 | `.pc list/show/new/use/active/nn/copy/cpy/del/val/meta/export/import/redo/build/stat/clr`、`.st`（查看/赋值/增减/具名宏）——**角色一律用名字引用** |
 | 人物作成 | `.coc`/`.coc6d`/`.coc 10`、`.dnd`/`.dndd`（别名由规则书声明） |
 | 规则与数据 | `.sys`/`.sys validate`（规则书）、`.rules`（速查）、`.tb`（随机表）、`.ti`/`.li`（CoC 疯狂表）、`.dv`（派生数值）、`.dmg`（伤害）、`.opp`（对抗） |
-| 团务 | `.ak`（随机抉择）、`.name`（随机姓名）、`.en`（成长）、`.ri`/`.init`（先攻）、`.deck`/`.draw`（牌堆） |
+| 团务 | `.table`（开桌/切桌，同一群可并行多桌）、`.ak`（随机抉择）、`.name`（随机姓名）、`.en`（成长）、`.ri`/`.init`（先攻）、`.deck`/`.draw`（牌堆、弃牌堆） |
 
 ```bash
 dicegirl .r 3#1d6 手枪连射        # 连掷三次
@@ -109,7 +109,10 @@ dicegirl ww 5a8                   # 同上，但给出每颗骰子的点数
 dicegirl ri +5 首领               # 先攻掷骰（加入先攻列表）
 dicegirl init                     # 查看先攻列表（从高到低）
 dicegirl deck new "俄罗斯轮盘=有弹|无弹|无弹"   # 定义牌堆
-dicegirl draw "俄罗斯轮盘" 2       # 抽牌（不放回）
+dicegirl draw "俄罗斯轮盘" 2       # 抽牌（不放回，抽出的卡进弃牌堆）
+dicegirl deck put "俄罗斯轮盘" 有弹  # 把卡面从弃牌堆放回牌库并重洗
+dicegirl table new 恐怖团 --system coc7   # 开新桌并切换（先攻/牌堆/绑卡按桌隔离）
+dicegirl table use 默认桌           # 切桌（table <桌名> 是简写）
 ```
 
 所有指令支持全局参数 `--json`（输出结构化结果，机器人适配器复用同一契约）、`--data-root <目录>`（数据根目录）和 `--seed <整数>`（固定随机种子，调试/复现用）。
@@ -125,7 +128,7 @@ DICEGIRL_BOT_DATA_ROOT=botdata \
 go run ./cmd/qqbot
 ```
 
-凭据只从环境变量（或分发包里的 `bot.env`）读取，不要提交到仓库。
+凭据只从环境变量（或分发包里的 `bot.env`）读取，不要提交到仓库。其它环境变量：`DICEGIRL_BOT_DATA_ROOT`（多租户数据基座，默认 `./botdata`）、`DICEGIRL_BOT_REPLY_UNKNOWN=true`（非指令的@消息也回复提示）、`DICEGIRL_BOT_DEBUG=true`（排障：打印全部网关事件原文、消息丢弃原因与 HTTP 收发明细）、`DICEGIRL_BOT_LOG_FILE`（同时写日志文件）。
 
 > **同一个 AppID 同时只能运行一个实例。** 本地调试与服务器同时运行时，两个网关连接会互相踢下线，并导致同一条消息被重复处理、数据（`botdata/`）各写各的。需要并行环境时请使用第二个机器人 AppID。
 
@@ -134,11 +137,12 @@ go run ./cmd/qqbot
 | 指令 | 说明 |
 | --- | --- |
 | `rh 3d6` / `rh .ra 心理学` | 暗骰：结果只私信给投骰者；围观者（`ob join`）也会收到 |
-| `ob join/exit/list/on/off` | 暗骰围观名单 |
-| `pc tag [名字]` / `pc untag` / `pc grp` | 本群绑卡；之后未指定角色的 `ra/st/sc/en/dv/dmg` 默认用本人卡 |
+| `drawh <牌堆> [数量]` | 暗抽：走暗骰同一私信通道，群里只显示谁抽了；抽出的卡同样进该桌的弃牌堆 |
+| `ob join/exit/list/on/off` | 暗骰/暗抽围观名单 |
+| `pc tag [名字]` / `pc untag [all]` / `pc grp` | **按桌绑卡**：绑定记在当前桌上，一桌一卡，切桌互不影响；`pc untag all` 解除所有桌 |
 | `log start [标题]` / `log stop` / `log show` | 战报：记录指令与结果，停止或查看时直接发送 Markdown 文件 |
 
-数据隔离：每个群一个独立数据根 `<botdata>/groups/<群openid>/`（独立 SQLite），私聊按用户隔离 `<botdata>/c2c/<用户openid>/`；空闲群按 LRU 关闭数据库。QQ 群事件不提供 `union_openid`，因此首次使用暗骰/围观会走一次性绑定码（群里发起、私聊机器人「绑定 <码>」），映射保存在群数据根。
+数据隔离：每个群一个独立数据根 `<botdata>/groups/<群openid>/`（独立 SQLite），私聊按用户隔离 `<botdata>/c2c/<用户openid>/`；空闲群按 LRU 关闭数据库。**一个群里可以开多个桌**（`table new/use/list`）：各桌的默认规则书、先攻、牌堆（含弃牌堆）、成员绑卡互相隔离，角色卡全群共享；用 `.coc`/`.dnd` 生成或 `pc new` 新建并自动激活的卡会直接绑到发起人当前所在的桌。QQ 群事件不提供 `union_openid`，因此首次使用暗骰/暗抽/围观会走一次性绑定码（群里发起、私聊机器人「绑定 <码>」），映射保存在群数据根。
 
 ### 分发包
 
@@ -228,12 +232,12 @@ tests/integration/ 端到端测试（进程内驱动 cmd/dicegirl/cli）
 - P5 声明式人物作成：`generation`（骰点法属性生成式、CoC6/7 变体、购点法点数池/费率/自动分配）、`.coc`/`.coc6d`/`.coc 10`、`.dnd`/`.dndd`（内置 D&D 5e：4d6 丢最低 / 27 点购点；别名由规则书声明）、`pc redo`
 - P6 通用算子与具名宏：骰组修饰符 `!`（爆骰）、`r`（重投）、`c`（成功计数，骰池语义）、`.w`/`.ww` 骰池别名；角色卡上的具名宏（`.st &名=表达式`、`.r 名`）
 - 机制可插拔：`mechanic.roll` + `meets` 用骰子表达式与布尔公式声明检定（含 `bonus_keep`/`penalty_keep`），内置 `percentile`（CoC 的特殊骰面语义）与 `d20` 族；成功等级与难度语义随声明适配。内置 D&D 5e（2014）规则书 [rulebooks/dnd5e.yaml](rulebooks/dnd5e.yaml)（d20 表达式、优势/劣势、DC、18 技能、派生数值、随机表、4d6 丢最低与 27 点购点）与示例书 `docs/examples/dnd-lite.yaml`
-- P7 团务工具：先攻列表（`.ri`/`.init`，本地遭遇状态）、牌堆与抽牌（`.deck`/`.draw`，不放回、跨进程持久化）
+- P7 团务工具：桌/团（`.table`，同一群多桌并行，默认规则书/先攻/牌堆/当前卡按桌隔离，角色卡共享）、先攻列表（`.ri`/`.init`）、牌堆与抽牌（`.deck`/`.draw`，不放回、牌库/弃牌堆分离、`deck put` 放回、`draw … 放回` 抽后放回、跨进程持久化）
 - P8 角色卡扩展：重命名（`.pc nn`）、属性覆盖复制（`.pc cpy`）、指定卡重掷（`.pc redo`/`.pc build`）、清空全部卡（`.pc clr`）
 - P9 持久化重构 + 掷骰统计：可写状态整体迁到 SQLite（冷热分工：规则仍是 YAML），`.pc stat` 记录每张卡的检定统计
 - 用户可通过投放 YAML 规则书添加自己的游戏（可声明自己的短指令别名），无需改代码（边界见 [docs/guide.md](docs/guide.md) 2.16 节）
 
-聊天平台能力由 QQ 适配器提供：暗骰与围观、群内个人绑卡、战报记录（见上文「QQ 机器人」）。冒险日志采集、私聊暗抽等尚未实现。
+聊天平台能力由 QQ 适配器提供：暗骰与围观（含 `.drawh` 暗抽）、按桌个人绑卡（新建/生成的卡自动绑定当前桌）、战报记录（见上文「QQ 机器人」）。冒险日志采集、多平台适配器等尚未实现。
 
 规则判定与角色卡写入分离：CLI 只有显式 `--apply`（资源检定）、`--init`（派生属性）或成长检定（成长语义即写回）才会保存状态变更；机器人端按平台惯例默认写回资源检定；人物作成按定义直接建卡。
 

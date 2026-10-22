@@ -352,7 +352,7 @@ func TestShortPCAndRH(t *testing.T) {
 
 	// Prefixed unknown commands fail loudly instead of falling through.
 	code, _, errs = runCLI(t, root, ".xyz")
-	if code != 2 || !strings.Contains(errs, "未知短指令") {
+	if code != 2 || !strings.Contains(errs, "未知指令") {
 		t.Fatalf(".xyz code=%d stderr=%q", code, errs)
 	}
 }

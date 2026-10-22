@@ -28,7 +28,10 @@ func TestGroupStorePersistsBindings(t *testing.T) {
 	}
 	if err := st.update(func(gs *groupState) error {
 		gs.Links["member-1"] = memberLink{UserOpenid: "user-1"}
-		gs.Bindings["member-1"] = cardBinding{CardID: "c-1234", CardName: "张三"}
+		gs.Bindings["member-1"] = map[string]cardBinding{
+			"default": {CardID: "c-1234", CardName: "张三"},
+			"t-other": {CardID: "c-9999", CardName: "李四的小号"},
+		}
 		gs.Observers["member-2"] = observerEntry{Enabled: true}
 		gs.ObEnabled = true
 		return nil
@@ -36,7 +39,7 @@ func TestGroupStorePersistsBindings(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Reload from disk: everything survives.
+	// Reload from disk: everything survives, keyed per table.
 	again, err := loadGroupStore(root)
 	if err != nil {
 		t.Fatal(err)
@@ -44,8 +47,14 @@ func TestGroupStorePersistsBindings(t *testing.T) {
 	if uid, ok := again.link("member-1"); !ok || uid != "user-1" {
 		t.Fatalf("link = %q, %v", uid, ok)
 	}
-	if b, ok := again.binding("member-1"); !ok || b.CardName != "张三" {
-		t.Fatalf("binding = %+v, %v", b, ok)
+	if b, ok := again.binding("member-1", "default"); !ok || b.CardName != "张三" {
+		t.Fatalf("default-table binding = %+v, %v", b, ok)
+	}
+	if b, ok := again.binding("member-1", "t-other"); !ok || b.CardID != "c-9999" {
+		t.Fatalf("other-table binding = %+v, %v", b, ok)
+	}
+	if _, ok := again.binding("member-1", "t-nope"); ok {
+		t.Fatal("binding unexpectedly found on an unknown table")
 	}
 	// member-2 has no private link yet, so it is not pushed to.
 	if got := again.observerUserOpenids(""); len(got) != 0 {
@@ -69,6 +78,73 @@ func TestGroupStorePersistsBindings(t *testing.T) {
 
 	if _, err := os.Stat(filepath.Join(root, "adapter.json")); err != nil {
 		t.Fatalf("state file missing: %v", err)
+	}
+}
+
+func TestGroupStoreMigratesFlatBindings(t *testing.T) {
+	root := t.TempDir()
+	// An adapter.json written before tables existed: bindings are flat.
+	legacy := `{
+  "links": {"m1": {"user_openid": "u1", "updated_at": null}},
+  "bindings": {"m1": {"card_id": "c-1", "card_name": "旧卡", "updated_at": null}},
+  "observers": {},
+  "ob_enabled": false,
+  "log": {"active": false, "title": "", "file": "", "started_at": null, "entries": 0}
+}`
+	if err := os.WriteFile(filepath.Join(root, "adapter.json"), []byte(legacy), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	st, err := loadGroupStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, ok := st.binding("m1", "default")
+	if !ok || b.CardID != "c-1" || b.CardName != "旧卡" {
+		t.Fatalf("flat binding not migrated to the default table: %+v %v", b, ok)
+	}
+	if _, ok := st.binding("m1", "t-other"); ok {
+		t.Fatal("legacy binding leaked to another table")
+	}
+	// Persisting once must rewrite the nested shape.
+	if err := st.update(func(gs *groupState) error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	again, err := loadGroupStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b, ok := again.binding("m1", "default"); !ok || b.CardName != "旧卡" {
+		t.Fatalf("reloaded migrated binding: %+v %v", b, ok)
+	}
+}
+
+func TestHiddenCommands(t *testing.T) {
+	cases := map[string]bool{
+		".rh 3d6":     true,
+		"。rh .ra 心理学": true,
+		"rh":          true,
+		".drawh 命运 2": true,
+		"drawh 测试":    true,
+		".draw 命运":    false,
+		".r 1d6":      false,
+		"":            false,
+	}
+	for line, want := range cases {
+		if got := isHiddenCommand(line); got != want {
+			t.Errorf("isHiddenCommand(%q) = %v, want %v", line, got, want)
+		}
+	}
+	if name, body := hiddenParts(".drawh 命运 2"); name != "drawh" || body != "命运 2" {
+		t.Fatalf("hiddenParts drawh = %q %q", name, body)
+	}
+	if name, body := hiddenParts("。rh .ra 心理学"); name != "rh" || body != ".ra 心理学" {
+		t.Fatalf("hiddenParts rh = %q %q", name, body)
+	}
+	if got := hiddenNoun("drawh"); got != "暗抽" {
+		t.Fatalf("hiddenNoun drawh = %q", got)
+	}
+	if got := hiddenNoun("rh"); got != "暗骰" {
+		t.Fatalf("hiddenNoun rh = %q", got)
 	}
 }
 

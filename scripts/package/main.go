@@ -185,6 +185,7 @@ DICEGIRL_QQ_SECRET=
 
 # 可选
 # DICEGIRL_BOT_REPLY_UNKNOWN=false   # @ 了但不是指令时是否回复提示
+# DICEGIRL_BOT_DEBUG=false           # 排障：打印全部网关事件原文、丢弃原因与 HTTP 收发明细
 # DICEGIRL_BOT_LOG_FILE=/var/log/dicegirl/bot.log
 #   同时写入日志文件（按 10MB 轮转，保留 3 份）；不设则只输出到控制台/journald
 `

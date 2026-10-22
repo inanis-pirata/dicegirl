@@ -203,6 +203,13 @@ func (r *Renderer) GeneratedSheet(sheet *app.GeneratedSheet, c *character.Charac
 func generationLine(c *app.GeneratedSheet) string {
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "🎲 [%s] %s", c.Name, formatAttributeValues(c.Attributes))
+	if len(c.Vitals) > 0 {
+		tracks := make([]string, 0, len(c.Vitals))
+		for _, v := range c.Vitals {
+			tracks = append(tracks, fmt.Sprintf("%s %d/%d", strings.ToUpper(v.Resource), v.Current, v.Max))
+		}
+		fmt.Fprintf(&sb, "；%s", strings.Join(tracks, "，"))
+	}
 	if c.PointBuy != nil {
 		fmt.Fprintf(&sb, "；点数 %d/%d（剩 %d", c.PointBuy.Spent, c.PointBuy.Budget, c.PointBuy.Left)
 		if c.PointBuy.OccupationCap > 0 {
@@ -214,6 +221,21 @@ func generationLine(c *app.GeneratedSheet) string {
 		sb.WriteString("）")
 	}
 	return sb.String()
+}
+
+// formatResources renders resource tracks as a sorted "hp 13/13，san 99/99".
+func formatResources(tracks map[string]character.Resource) string {
+	keys := make([]string, 0, len(tracks))
+	for k := range tracks {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, k := range keys {
+		v := tracks[k]
+		parts = append(parts, fmt.Sprintf("%s %d/%d", k, v.Current, v.Max))
+	}
+	return strings.Join(parts, "，")
 }
 
 // formatAttributeValues renders an attribute map as "STR 50，CON 60".
@@ -248,15 +270,19 @@ func (r *Renderer) Initiative(list *app.InitiativeList) error {
 	})
 }
 
-// Deck renders one deck with its remaining cards.
+// Deck renders one deck with its draw pile and discard pile.
 func (r *Renderer) Deck(deck *app.Deck) error {
 	return r.render(deck, func() string {
 		remaining := "（空）"
 		if len(deck.Remaining) > 0 {
 			remaining = strings.Join(deck.Remaining, "、")
 		}
-		return fmt.Sprintf("牌堆「%s」：剩 %d/%d 张：%s",
+		line := fmt.Sprintf("牌堆「%s」：剩 %d/%d 张：%s",
 			deck.Name, len(deck.Remaining), len(deck.Cards), remaining)
+		if len(deck.Discard) > 0 {
+			line += fmt.Sprintf("；弃牌堆 %d 张：%s", len(deck.Discard), strings.Join(deck.Discard, "、"))
+		}
+		return line
 	})
 }
 
@@ -268,7 +294,11 @@ func (r *Renderer) DeckList(list *app.DeckList) error {
 		}
 		lines := make([]string, 0, len(list.Decks))
 		for _, d := range list.Decks {
-			lines = append(lines, fmt.Sprintf("%s\t剩 %d/%d 张", d.Name, len(d.Remaining), len(d.Cards)))
+			line := fmt.Sprintf("%s\t剩 %d/%d 张", d.Name, len(d.Remaining), len(d.Cards))
+			if len(d.Discard) > 0 {
+				line += fmt.Sprintf("，弃 %d", len(d.Discard))
+			}
+			lines = append(lines, line)
 		}
 		return strings.Join(lines, "\n")
 	})
@@ -277,8 +307,57 @@ func (r *Renderer) DeckList(list *app.DeckList) error {
 // Draw renders the drawn cards.
 func (r *Renderer) Draw(res *app.DrawResult) error {
 	return r.render(res, func() string {
-		return fmt.Sprintf("抽牌（%s）：%s（牌堆剩 %d 张）",
+		line := fmt.Sprintf("抽牌（%s）：%s（牌堆剩 %d 张）",
 			res.Deck, strings.Join(res.Cards, "、"), res.Left)
+		switch {
+		case res.Replace:
+			line += "（放回）"
+		case res.Discard > 0:
+			line += fmt.Sprintf("（弃牌堆 %d 张）", res.Discard)
+		}
+		return line
+	})
+}
+
+// Session renders one game table and the per-table state it owns. (The
+// random-table renderer keeps the Table name.)
+func (r *Renderer) Session(view *app.TableView) error {
+	return r.render(view, func() string {
+		marker := ""
+		if view.Active {
+			marker = "（当前）"
+		}
+		line := fmt.Sprintf("桌「%s」%s %s", view.Name, marker, view.ID)
+		if view.SystemID != "" {
+			line += "，规则书 " + view.SystemID
+		}
+		line += fmt.Sprintf("；先攻 %d 个条目", view.Initiative)
+		if len(view.Decks) > 0 {
+			line += "；牌堆：" + strings.Join(view.Decks, "、")
+		}
+		return line
+	})
+}
+
+// SessionList renders every game table, marking the active one.
+func (r *Renderer) SessionList(list *app.TableList) error {
+	return r.render(list, func() string {
+		if len(list.Tables) == 0 {
+			return "（还没有桌）"
+		}
+		lines := make([]string, 0, len(list.Tables))
+		for _, t := range list.Tables {
+			mark := "  "
+			if t.Active {
+				mark = "* "
+			}
+			line := fmt.Sprintf("%s%s\t%s", mark, t.Name, t.ID)
+			if t.SystemID != "" {
+				line += "，规则书 " + t.SystemID
+			}
+			lines = append(lines, line)
+		}
+		return strings.Join(lines, "\n")
 	})
 }
 
@@ -577,18 +656,7 @@ func (r *Renderer) Character(c *character.Character) error {
 		}
 		if len(c.Resources) > 0 {
 			b.WriteString("状态：")
-			keys := make([]string, 0, len(c.Resources))
-			for k := range c.Resources {
-				keys = append(keys, k)
-			}
-			sort.Strings(keys)
-			for i, k := range keys {
-				if i > 0 {
-					b.WriteString("，")
-				}
-				v := c.Resources[k]
-				fmt.Fprintf(&b, "%s %d/%d", k, v.Current, v.Max)
-			}
+			b.WriteString(formatResources(c.Resources))
 			b.WriteString("\n")
 		}
 		if len(c.Macros) > 0 {
@@ -625,10 +693,16 @@ func (r *Renderer) Character(c *character.Character) error {
 	})
 }
 
-// CreatedCharacter renders a create result.
-func (r *Renderer) CreatedCharacter(c *character.Character) error {
+// CreatedCharacter renders a create result. notice (empty to omit) is an
+// extra text-only line, e.g. the derived tracks recorded on creation or a
+// hint that incomplete characteristics left the tracks uninitialized.
+func (r *Renderer) CreatedCharacter(c *character.Character, notice string) error {
 	return r.render(c, func() string {
-		return fmt.Sprintf("已创建角色 %s：%s（%s）", c.ID, c.Name, c.SystemID)
+		line := fmt.Sprintf("已创建角色 %s：%s（%s）", c.ID, c.Name, c.SystemID)
+		if notice != "" {
+			line += "\n" + notice
+		}
+		return line
 	})
 }
 

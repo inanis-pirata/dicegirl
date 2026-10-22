@@ -1,10 +1,9 @@
 package chatcore
 
-// Chat-style short commands (Dice!/BCDice conventions). This file is the
-// only place that knows command aliases and punctuation prefixes: it parses
-// free-form chat tokens and calls the same internal/app use cases as the
-// long commands. internal/ must never learn these aliases; future chat
-// adapters reuse this parser as a cmd-side sibling.
+// The chat command grammar (Dice!/BCDice conventions). This file is the
+// only place that knows command names and punctuation prefixes: it parses
+// free-form chat tokens and calls the internal/app use cases. internal/ must
+// never learn these names; every chat adapter reuses this parser.
 
 import (
 	"context"
@@ -31,7 +30,7 @@ var shortCommands = map[string]bool{
 	"st": true, "pc": true, "rh": true, "set": true,
 	"ti": true, "li": true, "ak": true, "name": true, "en": true,
 	"w": true, "ww": true, "rules": true,
-	"ri": true, "init": true, "deck": true, "draw": true,
+	"ri": true, "init": true, "deck": true, "draw": true, "drawh": true,
 	"sys": true, "dv": true, "dmg": true, "opp": true, "tb": true,
 	"help": true, "帮助": true,
 }
@@ -40,18 +39,84 @@ var shortCommands = map[string]bool{
 // declares its own short command alias in its manifest (`commands`), so the
 // CLI has no per-game command names. See bookCommand in bookcmd.go.
 
-// shortToken strips one leading alias punctuation mark, reporting whether
-// the token carried one.
+// shortToken strips any leading alias punctuation marks, reporting whether
+// the token carried at least one. The name is lower-cased so command matching
+// is case-insensitive ("R", "R1d3" work like "r", "r1d3").
 func shortToken(token string) (name string, prefixed bool) {
-	r, size := utf8.DecodeRuneInString(token)
-	if size > 0 && shortPrefixes[r] && len(token) > size {
-		return token[size:], true
+	s := token
+	for len(s) > 0 {
+		r, size := utf8.DecodeRuneInString(s)
+		if size > 0 && shortPrefixes[r] && len(s) > size {
+			s = s[size:]
+			prefixed = true
+			continue
+		}
+		break
 	}
-	return token, false
+	if s == "" {
+		// A lone punctuation mark is not an alias prefix.
+		return token, false
+	}
+	return strings.ToLower(s), prefixed
 }
 
 func isShortCommand(name string) bool {
 	return shortCommands[name]
+}
+
+// SplitCommandToken normalizes the first whitespace-delimited token of a
+// chat line. Besides stripping one optional punctuation mark (shortToken), it
+// repairs a command name glued to its first argument: ".r3d6" and "r3d6"
+// split into ("r", "3d6"). Matching prefers the longest command prefix, so
+// ".drawh命运" splits at "drawh", not "draw".
+//
+// The report is (name, gluedArg, prefixed, ok): gluedArg is the part glued to
+// the command ("" for a plain command token), prefixed reports the
+// punctuation mark and ok whether a command was recognized. Adapter-only
+// command names (ob/log/...) may be passed in extra.
+//
+// Without a punctuation mark only an obviously-arg-like remainder starts a
+// split (a digit, CJK rune or punctuation — not an ASCII letter), so casual
+// words such as "reset" are never mistaken for "r est".
+func SplitCommandToken(token string, extra ...string) (name, glued string, prefixed, ok bool) {
+	raw, mark := shortToken(token)
+	if isShortCommand(raw) {
+		return raw, "", mark, true
+	}
+	for _, e := range extra {
+		if raw == e {
+			return raw, "", mark, true
+		}
+	}
+	best := ""
+	consider := func(cand string) {
+		if cand == raw || !strings.HasPrefix(raw, cand) || len(cand) <= len(best) {
+			return
+		}
+		rest := raw[len(cand):]
+		if rest == "" {
+			return
+		}
+		if !mark && isASCIILetter(rest[0]) {
+			return
+		}
+		best = cand
+	}
+	for c := range shortCommands {
+		consider(c)
+	}
+	for _, e := range extra {
+		consider(e)
+	}
+	if best == "" {
+		return raw, "", mark, false
+	}
+	return best, raw[len(best):], mark, true
+}
+
+// isASCIILetter reports whether b is an ASCII letter byte.
+func isASCIILetter(b byte) bool {
+	return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z')
 }
 
 // dispatchShort runs one recognized short command. It never returns
@@ -119,8 +184,11 @@ func dispatchShort(ctx context.Context, name string, args []string,
 	case "rh":
 		return PrintError(stderr, apperr.New("cli.short", apperr.InvalidArgument,
 			"暗骰（rh）需要聊天平台适配器，CLI 暂不支持"))
+	case "drawh":
+		return PrintError(stderr, apperr.New("cli.short", apperr.InvalidArgument,
+			"暗抽（drawh）需要聊天平台适配器，CLI 暂不支持"))
 	default:
-		fmt.Fprintf(stderr, "未知短指令：%s（可用：%s）\n", name, shortCommandList())
+		fmt.Fprintf(stderr, "未知指令：%s（可用：%s）\n", name, shortCommandList())
 		return 2
 	}
 }
@@ -1067,7 +1135,7 @@ func shortInitiativeList(ctx context.Context, args []string, a *app.App, r *Rend
 // shortDeck manages the card decks (Dice! `.deck`).
 func shortDeck(ctx context.Context, args []string, a *app.App, r *Renderer, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "用法：deck new <名>=<卡面1|卡面2>｜deck set <实例>=<牌堆|range 下限 上限>｜deck show [名]｜deck reset <名>｜deck clr")
+		fmt.Fprintln(stderr, "用法：deck new <名>=<卡面1|卡面2>｜deck set <实例>=<牌堆|range 下限 上限>｜deck show [名]｜deck put <名> <卡面...>｜deck reset <名>｜deck clr")
 		return 2
 	}
 	switch args[0] {
@@ -1130,6 +1198,19 @@ func shortDeck(ctx context.Context, args []string, a *app.App, r *Renderer, stde
 			return PrintError(stderr, err)
 		}
 		return 0
+	case "put", "return", "back":
+		if len(args) < 3 {
+			fmt.Fprintln(stderr, "用法：deck put <名> <卡面...>（把弃牌堆里的卡放回并重洗）")
+			return 2
+		}
+		deck, err := a.ReturnCards(ctx, args[1], args[2:])
+		if err != nil {
+			return PrintError(stderr, err)
+		}
+		if err := r.Deck(deck); err != nil {
+			return PrintError(stderr, err)
+		}
+		return 0
 	case "reset":
 		if len(args) != 2 {
 			fmt.Fprintln(stderr, "用法：deck reset <名>")
@@ -1156,31 +1237,41 @@ func shortDeck(ctx context.Context, args []string, a *app.App, r *Renderer, stde
 		}
 		return 0
 	default:
-		fmt.Fprintln(stderr, "用法：deck new｜deck set｜deck show｜deck reset｜deck clr")
+		fmt.Fprintln(stderr, "用法：deck new｜deck set｜deck show｜deck put｜deck reset｜deck clr")
 		return 2
 	}
 }
 
-// shortDraw draws cards from a deck without replacement (Dice! `.draw`).
+// shortDraw draws cards from a deck (Dice! `.draw`). Without replacement the
+// cards move to the discard pile; a trailing "放回" draws with replacement.
 func shortDraw(ctx context.Context, args []string, a *app.App, r *Renderer, stderr io.Writer) int {
 	if len(args) < 1 {
-		fmt.Fprintln(stderr, "用法：draw <牌堆> [数量]")
+		fmt.Fprintln(stderr, "用法：draw <牌堆> [数量] [放回]")
 		return 2
 	}
 	count := 1
-	if len(args) > 1 {
-		n, err := strconv.Atoi(args[1])
-		if err != nil || n < 1 {
-			fmt.Fprintln(stderr, "抽牌数量必须是正整数")
+	replace := false
+	for _, tok := range args[1:] {
+		switch {
+		case isIntegerToken(tok):
+			if count != 1 {
+				fmt.Fprintln(stderr, "用法：draw <牌堆> [数量] [放回]")
+				return 2
+			}
+			n, _ := strconv.Atoi(tok)
+			if n < 1 {
+				fmt.Fprintln(stderr, "抽牌数量必须是正整数")
+				return 2
+			}
+			count = n
+		case tok == "放回" || tok == "放回抽" || tok == "back" || tok == "replace":
+			replace = true
+		default:
+			fmt.Fprintln(stderr, "用法：draw <牌堆> [数量] [放回]")
 			return 2
 		}
-		count = n
 	}
-	if len(args) > 2 {
-		fmt.Fprintln(stderr, "用法：draw <牌堆> [数量]")
-		return 2
-	}
-	res, err := a.DrawCards(ctx, args[0], count)
+	res, err := a.DrawCards(ctx, args[0], app.DrawOptions{Count: count, Replace: replace})
 	if err != nil {
 		return PrintError(stderr, err)
 	}
@@ -1347,6 +1438,9 @@ func shortGenerate(ctx context.Context, command, usage, systemDefault, variant s
 	if err != nil {
 		return PrintError(stderr, err)
 	}
+	if *active && len(res.Characters) > 0 {
+		notifyCardCreated(ctx, res.Characters[0].ID, res.Characters[0].Name)
+	}
 	if err := r.Generation(res); err != nil {
 		return PrintError(stderr, err)
 	}
@@ -1468,7 +1562,7 @@ func shortPC(ctx context.Context, args []string, a *app.App, r *Renderer, stdin 
 }
 
 // pcUsage is the card-management help line.
-const pcUsage = "用法：pc list｜pc new <名> [K=V...]｜pc show [名字|id]｜pc use <名字|id>｜pc active｜pc nn [名字|id] <新名>｜pc copy <名字|id> <新名>｜pc cpy <目标>=<来源>｜pc del <名字|id>｜pc val [名字|id]｜pc meta <键> [值]｜pc export [名字|id] [--file 路径]｜pc import --file <路径|->｜pc redo [名字|id]｜pc build [名字|id]｜pc stat [名字|id]｜pc clr"
+const pcUsage = "用法：pc list｜pc new <名> [K=V...] [--active=false]｜pc show [名字|id]｜pc use <名字|id>｜pc active｜pc nn [名字|id] <新名>｜pc copy <名字|id> <新名>｜pc cpy <目标>=<来源>｜pc del <名字|id]｜pc val [名字|id]｜pc meta <键> [值]｜pc export [名字|id] [--file 路径]｜pc import --file <路径|->｜pc redo [名字|id]｜pc build [名字|id]｜pc stat [名字|id]｜pc clr"
 
 // shortPCRebuild regenerates a card's attributes (`.pc redo` / `.pc build`).
 // The card is addressed by id (the active one by default) and the

@@ -20,9 +20,20 @@ const bindCodeTTL = 10 * time.Minute
 type pendingBind struct {
 	GroupID  string
 	Member   string
-	Text     string // private text to deliver once bound (hidden-roll result)
+	Text     string // private text to deliver once bound (hidden result)
 	Observer bool   // enroll as an observer once bound
-	Expires  time.Time
+	// Kind labels the pending result: "rh" (hidden roll) or "drawh"
+	// (hidden draw).
+	Kind    string
+	Expires time.Time
+}
+
+// hiddenNoun is the Chinese label of a hidden-result kind.
+func hiddenNoun(kind string) string {
+	if kind == "drawh" {
+		return "暗抽"
+	}
+	return "暗骰"
 }
 
 type bindManager struct {

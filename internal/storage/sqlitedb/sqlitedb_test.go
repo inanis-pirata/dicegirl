@@ -2,6 +2,7 @@ package sqlitedb
 
 import (
 	"context"
+	"database/sql"
 	"os"
 	"path/filepath"
 	"testing"
@@ -323,4 +324,114 @@ func TestLegacyMigration(t *testing.T) {
 	if err != nil || len(list) != 1 {
 		t.Fatalf("second open imported again: %v %v", list, err)
 	}
+}
+
+// TestMigrateTablesV2FromOldSchema opens a database shaped exactly like a
+// pre-tables deployment (encounter_entries and decks without table_id /
+// discard) and also pre-creates the empty `tables` table that a partially
+// failed open leaves behind (the CREATE TABLE commits before the index step
+// aborts). Opening must succeed and move existing rows onto the default
+// table.
+func TestMigrateTablesV2FromOldSchema(t *testing.T) {
+	root := t.TempDir()
+	cfg := config.Default()
+	if err := cfg.Resolve(root); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := sql.Open("sqlite", "file:"+cfg.DatabaseFile())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = raw.Exec(`
+CREATE TABLE encounter_entries (
+	seq   INTEGER PRIMARY KEY AUTOINCREMENT,
+	name  TEXT NOT NULL,
+	value INTEGER NOT NULL
+);
+CREATE TABLE decks (
+	name      TEXT PRIMARY KEY,
+	cards     TEXT NOT NULL,
+	remaining TEXT NOT NULL
+);
+CREATE TABLE state (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE tables (
+	id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, system_id TEXT NOT NULL DEFAULT '',
+	created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+INSERT INTO encounter_entries (name, value) VALUES ('哥布林', 18);
+INSERT INTO decks (name, cards, remaining) VALUES ('命运', '["凶","吉"]', '["吉"]');
+INSERT INTO state (key, value) VALUES ('active_character_id', 'c-old1');
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := raw.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	s, err := Open(cfg)
+	if err != nil {
+		t.Fatalf("Open old database failed: %v", err)
+	}
+	defer s.Close()
+	ctx := context.Background()
+
+	var tableID, name string
+	var value int
+	err = s.db.QueryRowContext(ctx,
+		`SELECT table_id, name, value FROM encounter_entries`).Scan(&tableID, &name, &value)
+	if err != nil {
+		t.Fatalf("encounter row: %v", err)
+	}
+	if tableID != "default" || name != "哥布林" || value != 18 {
+		t.Fatalf("encounter migrated wrong: %q %q %d", tableID, name, value)
+	}
+
+	var tid, cards, remaining, discard string
+	err = s.db.QueryRowContext(ctx,
+		`SELECT table_id, cards, remaining, discard FROM decks WHERE name = '命运'`).
+		Scan(&tid, &cards, &remaining, &discard)
+	if err != nil {
+		t.Fatalf("deck row: %v", err)
+	}
+	if tid != "default" || cards != `["凶","吉"]` || remaining != `["吉"]` || discard != "[]" {
+		t.Fatalf("deck migrated wrong: %q %q %q %q", tid, cards, remaining, discard)
+	}
+
+	var active string
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT value FROM state WHERE key = 'active_character_id:default'`).Scan(&active); err != nil {
+		t.Fatalf("namespaced active card: %v", err)
+	}
+	if active != "c-old1" {
+		t.Fatalf("active pointer = %q", active)
+	}
+
+	var defaultName, systemID string
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT name, system_id FROM tables WHERE id = 'default'`).Scan(&defaultName, &systemID); err != nil {
+		t.Fatalf("seed table: %v", err)
+	}
+	if defaultName != "默认桌" {
+		t.Fatalf("seed name = %q", defaultName)
+	}
+
+	// The post-migration index exists.
+	var idx int
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='idx_encounter_table'`).
+		Scan(&idx); err != nil || idx != 1 {
+		t.Fatalf("encounter index missing: %v", err)
+	}
+
+	// Reopening is idempotent.
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	again, err := Open(cfg)
+	if err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	_ = again.Close()
 }

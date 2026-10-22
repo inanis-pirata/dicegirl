@@ -239,9 +239,10 @@ updated_at: "2026-10-21T10:05:00Z"
 | `stat_keys` | 按技能/属性/资源检定的同样汇总 |
 | `stat_levels` | 按成功等级 code 的次数分布 |
 | `stat_history` | 最近 50 条检定明细（每卡有界） |
-| `state` | 本地状态：当前角色、默认骰面数、随机抉择选项 |
-| `encounter_entries` | 当前遭遇的先攻列表（按录入顺序） |
-| `decks` | 牌堆：定义与剩余队列 |
+| `tables` | 桌/团：`id`（内置 `default` = 默认桌）、名字、默认规则书、时间戳 |
+| `state` | 本地状态：当前桌指针、**按桌的**当前角色、默认骰面数、随机抉择选项（键带桌作用域） |
+| `encounter_entries` | 先攻列表（按录入顺序），按桌隔离 |
+| `decks` | 牌堆：定义、牌库剩余队列与**弃牌堆**，按桌隔离；不变量 剩余+弃牌=定义的多重集 |
 | `meta` | 内部标记（如迁移是否已完成） |
 
 - 每次检定只写一个事务（汇总 + 明细 + 裁剪历史），并发写不会丢更新。
@@ -255,6 +256,22 @@ updated_at: "2026-10-21T10:05:00Z"
 - 这些文件会被**导入数据库**（角色卡、当前角色、默认骰面数、抉择选项、先攻、牌堆）；
 - 原文件被**移到 `<数据根>/legacy/`**（不删除，出问题可回退）；
 - 迁移只做一次（`meta` 表里有标记），之后不会再重复导入。
+
+多桌改造是一次**增量数据库升级**（`meta` 标记 `migrated_tables_v2`，新库直接是新结构）：
+
+- 新增 `tables` 表并播种 `default`（默认桌）一行；
+- `encounter_entries` 增加 `table_id` 列（默认 `default`）；`decks` 表重建为 `(table_id, name)` 复合主键并增加 `discard`（弃牌堆 JSON 数组），旧行整体挂到默认桌；
+- 旧版「当前角色」状态键命名空间化到默认桌（`active_character_id:<table>`）。
+
+### 5.1 适配器状态 `<群数据根>/adapter.json`（QQ 机器人）
+
+群数据库之外、只属于聊天适配器的状态放在 `adapter.json`：成员→私聊 `user_openid` 的链接、暗骰/暗抽一次性绑定码、`.ob` 围观名单、战报状态，以及成员绑卡。多桌改造后绑卡是两层映射：
+
+```text
+bindings: { "<member_openid>": { "<table_id>": {card_id, card_name, updated_at} } }
+```
+
+旧版的扁平结构 `member → cardBinding` 在加载时自动迁到 `default` 桌，首次持久化即重写为嵌套结构（见 `cmd/qqbot/groupstate.go` 的 `UnmarshalJSON`）。
 
 ## 6. 错误读取分类
 

@@ -30,12 +30,15 @@ type GenerateOptions struct {
 
 // GeneratedSheet is one generated character together with its stored card.
 type GeneratedSheet struct {
-	Name        string                 `json:"name"`
-	ID          string                 `json:"id"`
-	Attributes  map[string]int         `json:"attributes"`
-	Rolls       []*dice.RollResult     `json:"rolls,omitempty"`
-	PointBuy    *engine.PointBuyReport `json:"point_buy,omitempty"`
-	Explanation string                 `json:"explanation"`
+	Name       string                 `json:"name"`
+	ID         string                 `json:"id"`
+	Attributes map[string]int         `json:"attributes"`
+	Rolls      []*dice.RollResult     `json:"rolls,omitempty"`
+	PointBuy   *engine.PointBuyReport `json:"point_buy,omitempty"`
+	// Vitals are the rulebook-derived resource tracks recorded on the card
+	// during creation (initial and maximum values, declaration order).
+	Vitals      []engine.VitalsValue `json:"vitals,omitempty"`
+	Explanation string               `json:"explanation"`
 }
 
 // GenerateResult is the application-level result of a generation request.
@@ -61,7 +64,7 @@ func (a *App) GenerateCharacters(ctx context.Context, o GenerateOptions) (*Gener
 		return nil, apperr.New(op, apperr.InvalidArgument,
 			"详细作成一次只能生成一个人物")
 	}
-	book, err := a.selectSystem(o.SystemID, nil)
+	book, err := a.selectSystem(ctx, o.SystemID, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -94,9 +97,17 @@ func (a *App) GenerateCharacters(ctx context.Context, o GenerateOptions) (*Gener
 			sets = append(sets, Assignment{Key: attr, Value: v})
 		}
 		makeActive := o.MakeActive && i == 0
-		card, err := a.CreateCharacter(ctx, o.SystemID, names[i], sets, makeActive)
+		// CreateCharacter finishes the sheet with the rulebook's character
+		// rules too: the generated attributes let the derived initial
+		// resource tracks (CoC HP/MP/SAN, D&D HP, ...) initialize right
+		// away, so a generated card is playable as-is.
+		card, derived, err := a.CreateCharacter(ctx, o.SystemID, names[i], sets, makeActive)
 		if err != nil {
 			return nil, err
+		}
+		var vitals []engine.VitalsValue
+		if derived != nil {
+			vitals = derived.Vitals
 		}
 		res.Characters = append(res.Characters, &GeneratedSheet{
 			Name:        card.Name,
@@ -104,6 +115,7 @@ func (a *App) GenerateCharacters(ctx context.Context, o GenerateOptions) (*Gener
 			Attributes:  c.Attributes,
 			Rolls:       c.Rolls,
 			PointBuy:    c.PointBuy,
+			Vitals:      vitals,
 			Explanation: c.Explanation,
 		})
 	}
@@ -148,7 +160,7 @@ func (a *App) RedoCharacter(ctx context.Context, characterID, variantID string) 
 	if err != nil {
 		return nil, nil, err
 	}
-	book, err := a.selectSystem("", c)
+	book, err := a.selectSystem(ctx, "", c)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -181,11 +193,12 @@ func (a *App) RedoCharacter(ctx context.Context, characterID, variantID string) 
 		return nil, nil, err
 	}
 	// The derived tracks depend on the new characteristics.
-	if _, _, err := a.RunDerived(ctx, DerivedOptions{
+	d, _, err := a.RunDerived(ctx, DerivedOptions{
 		CharacterID: c.ID,
 		Initialize:  true,
 		Overwrite:   true,
-	}); err != nil {
+	})
+	if err != nil {
 		return nil, nil, err
 	}
 	updated, err := a.GetCharacter(ctx, c.ID)
@@ -198,6 +211,7 @@ func (a *App) RedoCharacter(ctx context.Context, characterID, variantID string) 
 		Attributes:  gc.Attributes,
 		Rolls:       gc.Rolls,
 		PointBuy:    gc.PointBuy,
+		Vitals:      d.Vitals,
 		Explanation: gc.Explanation,
 	}, updated, nil
 }

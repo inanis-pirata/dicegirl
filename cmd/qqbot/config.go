@@ -9,6 +9,7 @@ package main
 //	DICEGIRL_QQ_API_BASE     开放平台主机（默认 https://api.bot.qq.com，仅排障时覆盖）
 //	DICEGIRL_BOT_REPLY_UNKNOWN  非指令的@消息是否回复提示（默认 false：静默忽略）
 //	DICEGIRL_BOT_LOG_FILE    同时写入日志文件（默认只写 stdout / journald，自动轮转）
+//	DICEGIRL_BOT_DEBUG       排障日志：打印全部网关事件原文、丢弃原因与 HTTP 收发明细（默认 false）
 
 import (
 	"os"
@@ -24,6 +25,7 @@ const (
 	envAPIBase      = "DICEGIRL_QQ_API_BASE"
 	envReplyUnknown = "DICEGIRL_BOT_REPLY_UNKNOWN"
 	envLogFile      = "DICEGIRL_BOT_LOG_FILE"
+	envDebug        = "DICEGIRL_BOT_DEBUG"
 
 	defaultBotDataRoot = "botdata"
 	defaultAPIBase     = "https://api.bot.qq.com"
@@ -38,6 +40,9 @@ type botConfig struct {
 	ReplyUnknown bool
 	// LogFile, when set, receives a copy of every log line (rotated).
 	LogFile string
+	// Debug enables raw gateway/HTTP tracing and the reasons messages are
+	// dropped.
+	Debug bool
 }
 
 func configFromEnv() (*botConfig, error) {
@@ -65,6 +70,14 @@ func configFromEnv() (*botConfig, error) {
 				envReplyUnknown+" 必须是 true/false 或 1/0", err)
 		}
 		cfg.ReplyUnknown = b
+	}
+	if v := os.Getenv(envDebug); v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return nil, apperr.Wrap("qqbot.configFromEnv", apperr.InvalidArgument,
+				envDebug+" 必须是 true/false 或 1/0", err)
+		}
+		cfg.Debug = b
 	}
 	return cfg, nil
 }

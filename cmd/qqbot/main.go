@@ -42,12 +42,12 @@ func main() {
 		os.Exit(1)
 	}
 
-	api := newAPIClient(cfg)
+	api := newAPIClient(cfg, logger)
 	bh := newBotHandler(cfg, manager, api, contacts, logger)
-	gw := newGateway(api, bh.handle, logger)
+	gw := newGateway(api, bh.handle, logger, cfg.Debug)
 
-	logger.Printf("启动：版本=%s AppID=%s 数据根=%s API=%s 非指令提示=%t 日志文件=%q",
-		version.Version, cfg.AppID, cfg.DataRoot, cfg.APIBase, cfg.ReplyUnknown, cfg.LogFile)
+	logger.Printf("启动：版本=%s AppID=%s 数据根=%s API=%s 非指令提示=%t 调试=%t 日志文件=%q",
+		version.Version, cfg.AppID, cfg.DataRoot, cfg.APIBase, cfg.ReplyUnknown, cfg.Debug, cfg.LogFile)
 	if err := gw.run(ctx); err != nil {
 		logger.Print("网关终止：", err)
 		os.Exit(1)

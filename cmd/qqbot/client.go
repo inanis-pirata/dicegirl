@@ -36,18 +36,25 @@ type apiClient struct {
 	secret  string
 	http    *http.Client
 
+	// trace, when non-nil, receives one line per HTTP exchange (debug mode).
+	trace func(string, ...any)
+
 	mu       sync.Mutex
 	token    string
 	tokenExp time.Time
 }
 
-func newAPIClient(cfg *botConfig) *apiClient {
-	return &apiClient{
+func newAPIClient(cfg *botConfig, logger interface{ Printf(string, ...any) }) *apiClient {
+	c := &apiClient{
 		baseURL: strings.TrimRight(cfg.APIBase, "/"),
 		appID:   cfg.AppID,
 		secret:  cfg.Secret,
 		http:    &http.Client{Timeout: httpTimeout},
 	}
+	if cfg.Debug {
+		c.trace = logger.Printf
+	}
+	return c
 }
 
 type tokenResponse struct {
@@ -129,6 +136,14 @@ func (c *apiClient) doJSON(req *http.Request, out any, withAuth bool) error {
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
 		return err
+	}
+	if c.trace != nil {
+		// The token response carries the access_token: never log its body.
+		body := truncate(string(raw), 500)
+		if req.URL.Path == "/app/getAppAccessToken" {
+			body = "<redacted: token response>"
+		}
+		c.trace("HTTP %s %s -> %d %s", req.Method, req.URL.Path, resp.StatusCode, body)
 	}
 	if resp.StatusCode == http.StatusTooManyRequests {
 		return apperr.New("qqbot.api", apperr.RateLimited,

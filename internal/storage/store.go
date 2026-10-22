@@ -13,10 +13,24 @@ import (
 	"time"
 )
 
-// Deck is one card deck: the full definition and the remaining queue.
+// Deck is one card deck: the full definition, the drawable queue and the
+// discard pile (cards already drawn). Remaining + Discard together always
+// contain the same multiset as Cards.
 type Deck struct {
 	Cards     []string `json:"cards"`
 	Remaining []string `json:"remaining"`
+	Discard   []string `json:"discard,omitempty"`
+}
+
+// GameTable is one play table ("桌"/"团") inside a group data root. Table
+// state (active character, encounter, decks) is keyed by ID; cards stay
+// shared across tables.
+type GameTable struct {
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`
+	SystemID  string    `json:"system_id"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // InitiativeEntry is one entry of the initiative order.
@@ -110,12 +124,15 @@ type StatsStore interface {
 	DeleteStats(ctx context.Context, cardID string) error
 }
 
-// StateStore is the local single-user state: the current character, the
-// default die size, the pending random-choice options and the preferred
-// rulebook for the quick-reference search.
+// StateStore is the local single-user state: the current table and
+// character, the default die size, the pending random-choice options and the
+// preferred rulebook for the quick-reference search. The active character is
+// namespaced per table when the context carries one.
 type StateStore interface {
 	ActiveID(ctx context.Context) (string, error)
 	SetActive(ctx context.Context, id string) error
+	ActiveTable(ctx context.Context) (string, error)
+	SetActiveTable(ctx context.Context, id string) error
 	DefaultDieSides(ctx context.Context) (int, error)
 	SetDefaultDieSides(ctx context.Context, sides int) error
 	ChoiceOptions(ctx context.Context) ([]string, error)
@@ -124,14 +141,25 @@ type StateStore interface {
 	SetRulesSystem(ctx context.Context, systemID string) error
 }
 
-// EncounterStore is the current encounter's initiative list.
-type EncounterStore interface {
-	Initiative(ctx context.Context) ([]InitiativeEntry, error)
-	SetInitiative(ctx context.Context, entries []InitiativeEntry) error
+// TableStore is the collection of game tables inside one data root.
+type TableStore interface {
+	Tables(ctx context.Context) ([]GameTable, error)
+	TableByID(ctx context.Context, id string) (*GameTable, error)
+	TableByName(ctx context.Context, name string) (*GameTable, error)
+	CreateTable(ctx context.Context, t *GameTable) error
+	SetTableSystem(ctx context.Context, id, systemID string) error
+	DeleteTable(ctx context.Context, id string) error
 }
 
-// DeckStore is the collection of card decks.
+// EncounterStore is the current encounter's initiative list. Each table has
+// its own encounter.
+type EncounterStore interface {
+	Initiative(ctx context.Context, tableID string) ([]InitiativeEntry, error)
+	SetInitiative(ctx context.Context, tableID string, entries []InitiativeEntry) error
+}
+
+// DeckStore is the per-table collection of card decks.
 type DeckStore interface {
-	Decks(ctx context.Context) (map[string]*Deck, error)
-	SetDecks(ctx context.Context, decks map[string]*Deck) error
+	Decks(ctx context.Context, tableID string) (map[string]*Deck, error)
+	SetDecks(ctx context.Context, tableID string, decks map[string]*Deck) error
 }

@@ -1,111 +1,112 @@
-# 架构说明
+﻿# 鏋舵瀯璇存槑
 
-## 1. 分层与依赖方向
+## 1. 鍒嗗眰涓庝緷璧栨柟鍚?
 
 ```text
-cmd/dicegirl          进程入口：信号、stdout/stderr、退出码（package main）
-cmd/dicegirl/cli      界面层：全局参数解析与进程装配，位于 internal 之外
-cmd/qqbot（规划中）   QQ 官方机器人驱动：平台鉴权/网关/消息收发，只做传输翻译
-chatcore              共享聊天语法层：短指令解析与文本/JSON 渲染，CLI 与所有适配器复用，位于 internal 之外
-bot                   平台无关的适配器设施：按会话范围（群/C2C）隔离 data root 的多租户 Manager、LRU 驱逐、chatcore 执行入口
-rulebooks/            内置规则书数据（coc7.yaml、dnd5e.yaml，go:embed）+ embed.go
-datapacks/            内置数据包（names.yaml，非规则内容，go:embed）+ embed.go
-internal/app          用例编排：创建角色、跑检定、资源写回、随机表/成长/抉择/人物作成等
-internal/engine       与游戏无关的规则引擎：解释规则书（检定/对抗/资源/伤害/派生/随机表/成长/生成）+ 可插拔的检定机制（Mechanic）
-internal/engine/formula  规则书公式小语言（整数/布尔、白名单函数、加载期类型检查）
-internal/rules        RuleSystem 接口、Manifest 身份、Registry
-internal/character    角色卡领域模型与 Repository 端口
-internal/dice         通用骰子引擎（AST、解析、执行、随机源、爆骰/重投/计数算子）
-internal/storage      持久化契约（角色卡、掷骰统计、本地状态、先攻、牌堆的接口）
-internal/storage/sqlitedb  SQLite 实现（一个数据库；纯 Go 驱动，无需 cgo）
-internal/config       运行时配置（数据根、备份策略、规则书/数据包目录、数据库路径）
-internal/apperr       稳定错误码（机器判断）+ 结构化错误（人类阅读）
+cmd/dicegirl          杩涚▼鍏ュ彛锛氫俊鍙枫€乻tdout/stderr銆侀€€鍑虹爜锛坧ackage main锛?
+cmd/dicegirl/cli      鐣岄潰灞傦細鍏ㄥ眬鍙傛暟瑙ｆ瀽涓庤繘绋嬭閰嶏紝浣嶄簬 internal 涔嬪
+cmd/qqbot锛堣鍒掍腑锛?  QQ 瀹樻柟鏈哄櫒浜洪┍鍔細骞冲彴閴存潈/缃戝叧/娑堟伅鏀跺彂锛屽彧鍋氫紶杈撶炕璇?
+chatcore              鍏变韩鑱婂ぉ璇硶灞傦細鐭寚浠よВ鏋愪笌鏂囨湰/JSON 娓叉煋锛孋LI 涓庢墍鏈夐€傞厤鍣ㄥ鐢紝浣嶄簬 internal 涔嬪
+bot                   骞冲彴鏃犲叧鐨勯€傞厤鍣ㄨ鏂斤細鎸変細璇濊寖鍥达紙缇?C2C锛夐殧绂?data root 鐨勫绉熸埛 Manager銆丩RU 椹遍€愩€乧hatcore 鎵ц鍏ュ彛
+rulebooks/            鍐呯疆瑙勫垯涔︽暟鎹紙coc7.yaml銆乨nd5e.yaml锛実o:embed锛? embed.go
+datapacks/            鍐呯疆鏁版嵁鍖咃紙names.yaml锛岄潪瑙勫垯鍐呭锛実o:embed锛? embed.go
+internal/app          鐢ㄤ緥缂栨帓锛氬垱寤鸿鑹层€佽窇妫€瀹氥€佽祫婧愬啓鍥炪€侀殢鏈鸿〃/鎴愰暱/鎶夋嫨/浜虹墿浣滄垚绛?
+internal/engine       涓庢父鎴忔棤鍏崇殑瑙勫垯寮曟搸锛氳В閲婅鍒欎功锛堟瀹?瀵规姉/璧勬簮/浼ゅ/娲剧敓/闅忔満琛?鎴愰暱/鐢熸垚锛? 鍙彃鎷旂殑妫€瀹氭満鍒讹紙Mechanic锛?
+internal/engine/formula  瑙勫垯涔﹀叕寮忓皬璇█锛堟暣鏁?甯冨皵銆佺櫧鍚嶅崟鍑芥暟銆佸姞杞芥湡绫诲瀷妫€鏌ワ級
+internal/rules        RuleSystem 鎺ュ彛銆丮anifest 韬唤銆丷egistry
+internal/character    瑙掕壊鍗￠鍩熸ā鍨嬩笌 Repository 绔彛
+internal/dice         閫氱敤楠板瓙寮曟搸锛圓ST銆佽В鏋愩€佹墽琛屻€侀殢鏈烘簮銆佺垎楠?閲嶆姇/璁℃暟绠楀瓙锛?
+internal/storage      鎸佷箙鍖栧绾︼紙瑙掕壊鍗°€佹幏楠扮粺璁°€佹湰鍦扮姸鎬併€佸厛鏀汇€佺墝鍫嗙殑鎺ュ彛锛?
+internal/storage/sqlitedb  SQLite 瀹炵幇锛堜竴涓暟鎹簱锛涚函 Go 椹卞姩锛屾棤闇€ cgo锛?
+internal/config       杩愯鏃堕厤缃紙鏁版嵁鏍广€佸浠界瓥鐣ャ€佽鍒欎功/鏁版嵁鍖呯洰褰曘€佹暟鎹簱璺緞锛?
+internal/apperr       绋冲畾閿欒鐮侊紙鏈哄櫒鍒ゆ柇锛? 缁撴瀯鍖栭敊璇紙浜虹被闃呰锛?
 ```
 
-约束：
+绾︽潫锛?
 
-1. 依赖只能由外向内，且界面层在 `internal` 之外：`cmd/dicegirl/cli → chatcore → internal/app → {engine, rules, character, dice}`。任何 `internal/` 包都不导入 `cmd/`、`chatcore/` 或 `bot/`。机器人适配器（如 `cmd/qqbot`）与 CLI 平级，依赖 `internal/app` + `chatcore`（共享聊天语法）+ `bot`（多租户设施）；这是 2026-10-21 对「适配器只依赖 internal/app」的明确放宽。
-2. `internal/dice` 不导入任何规则概念；`internal/engine` 不含任何游戏专属分支——CoC 是 `rulebooks/coc7.yaml` 里的数据，引擎只解释声明。
-3. 领域层返回结构化结果与带错误码的 error；CLI 只负责把结果渲染成文本或 JSON。
-4. 规则判定不写存储。资源检定只产出 `ResourceCheckResult.Change` 建议；是否应用由 `app` 层根据 `--apply` 决定。成长检定是唯一例外：成长语义即写回，`app` 层在成长成立后经同一条备份/原子更新/校验路径落盘。人物作成同理：引擎只掷出属性，建卡由 `app` 层走既有 `CreateCharacter` 路径。
-5. 业务代码不拼文件路径；ID 经 `character.ValidateID` 校验，路径只由 `storage` 生成。
-6. 不使用全局可变状态；随机源、仓储、规则书全部构造时注入。
-7. 添加游戏不需要编译期注册：把同构 YAML 放进 `<数据根>/rulebooks/` 即可，加载路径与内置书完全相同。
+1. 渚濊禆鍙兘鐢卞鍚戝唴锛屼笖鐣岄潰灞傚湪 `internal` 涔嬪锛歚cmd/dicegirl/cli 鈫?chatcore 鈫?internal/app 鈫?{engine, rules, character, dice}`銆備换浣?`internal/` 鍖呴兘涓嶅鍏?`cmd/`銆乣chatcore/` 鎴?`bot/`銆傛満鍣ㄤ汉閫傞厤鍣紙濡?`cmd/qqbot`锛変笌 CLI 骞崇骇锛屼緷璧?`internal/app` + `chatcore`锛堝叡浜亰澶╄娉曪級+ `bot`锛堝绉熸埛璁炬柦锛夛紱杩欐槸 2026-10-21 瀵广€岄€傞厤鍣ㄥ彧渚濊禆 internal/app銆嶇殑鏄庣‘鏀惧銆?
+2. `internal/dice` 涓嶅鍏ヤ换浣曡鍒欐蹇碉紱`internal/engine` 涓嶅惈浠讳綍娓告垙涓撳睘鍒嗘敮鈥斺€擟oC 鏄?`rulebooks/coc7.yaml` 閲岀殑鏁版嵁锛屽紩鎿庡彧瑙ｉ噴澹版槑銆?
+3. 棰嗗煙灞傝繑鍥炵粨鏋勫寲缁撴灉涓庡甫閿欒鐮佺殑 error锛汣LI 鍙礋璐ｆ妸缁撴灉娓叉煋鎴愭枃鏈垨 JSON銆?
+4. 瑙勫垯鍒ゅ畾涓嶅啓瀛樺偍銆傝祫婧愭瀹氬彧浜у嚭 `ResourceCheckResult.Change` 寤鸿锛涙槸鍚﹀簲鐢ㄧ敱 `app` 灞傛牴鎹?`--apply` 鍐冲畾銆傛垚闀挎瀹氭槸鍞竴渚嬪锛氭垚闀胯涔夊嵆鍐欏洖锛宍app` 灞傚湪鎴愰暱鎴愮珛鍚庣粡鍚屼竴鏉″浠?鍘熷瓙鏇存柊/鏍￠獙璺緞钀界洏銆備汉鐗╀綔鎴愬悓鐞嗭細寮曟搸鍙幏鍑哄睘鎬э紝寤哄崱鐢?`app` 灞傝蛋鏃㈡湁 `CreateCharacter` 璺緞銆?
+5. 涓氬姟浠ｇ爜涓嶆嫾鏂囦欢璺緞锛汭D 缁?`character.ValidateID` 鏍￠獙锛岃矾寰勫彧鐢?`storage` 鐢熸垚銆?
+6. 涓嶄娇鐢ㄥ叏灞€鍙彉鐘舵€侊紱闅忔満婧愩€佷粨鍌ㄣ€佽鍒欎功鍏ㄩ儴鏋勯€犳椂娉ㄥ叆銆?
+7. 娣诲姞娓告垙涓嶉渶瑕佺紪璇戞湡娉ㄥ唽锛氭妸鍚屾瀯 YAML 鏀捐繘 `<鏁版嵁鏍?/rulebooks/` 鍗冲彲锛屽姞杞借矾寰勪笌鍐呯疆涔﹀畬鍏ㄧ浉鍚屻€?
 
-## 2. 规则引擎与「一本规则书」
+## 2. 瑙勫垯寮曟搸涓庛€屼竴鏈鍒欎功銆?
 
-一个游戏 = 一份自包含的规则书 YAML（内置 CoC 为 `rulebooks/coc7.yaml`，用户书为 `<数据根>/rulebooks/*.yaml`）。`engine.ParseBook` 严格解码（`KnownFields(true)`，拼写错误的字段直接失败）后全量编译：
+涓€涓父鎴?= 涓€浠借嚜鍖呭惈鐨勮鍒欎功 YAML锛堝唴缃?CoC 涓?`rulebooks/coc7.yaml`锛岀敤鎴蜂功涓?`<鏁版嵁鏍?/rulebooks/*.yaml`锛夈€俙engine.ParseBook` 涓ユ牸瑙ｇ爜锛坄KnownFields(true)`锛屾嫾鍐欓敊璇殑瀛楁鐩存帴澶辫触锛夊悗鍏ㄩ噺缂栬瘧锛?
 
-- 身份头：`schema_version`、`id`、`name`、`system_version`、`rules_version`、`description`（可选 `default: true` 指定多书时的默认书）；
-- 词汇表：属性、技能（常量 `base` 或属性公式 `base_expr`）；
-- 范围 `limits`、机制 `mechanic`（`roll` + `meets` 表达式族，或内置 `percentile`/`d20` 族）；
-- 成功等级 `checks.levels`：布尔公式按声明顺序求值，首个为真者胜，末位兜底；
-- 显式难度 `checks.difficulties`（可选）：公式难度用 `target` 公式改写目标（大失败跟随改写后目标、成功档位读基础目标梯），自动难度只判大失败并映射到声明等级；关键词本身是数据，引擎不内置任何难度名；
-- 对抗策略 `opposed`（大失败级 + 同级裁决方式）；
-- 伤害加值表（key 公式 + 连续行表，bonus 为骰子表达式）；
-- 派生属性（formula / switch / lookup，按声明顺序累积整型命名空间）、生命条、初始属性；
-- 资源检定（目标回退公式、成功门槛、成败损失、范围、clamp）；
-- 随机表 `tables`（掷骰选行、行文本可内嵌 `{…}` 子掷）、成长检定 `growth_checks`（条件公式 + 成长量 + 上限 + 按条目覆盖）、人物作成 `generation`（骰点法属性表达式、版本变体、购点法点数池/费率/自动分配）。
+- 韬唤澶达細`schema_version`銆乣id`銆乣name`銆乣system_version`銆乣rules_version`銆乣description`锛堝彲閫?`default: true` 鎸囧畾澶氫功鏃剁殑榛樿涔︼級锛?
+- 璇嶆眹琛細灞炴€с€佹妧鑳斤紙甯搁噺 `base` 鎴栧睘鎬у叕寮?`base_expr`锛夛紱
+- 鑼冨洿 `limits`銆佹満鍒?`mechanic`锛坄roll` + `meets` 琛ㄨ揪寮忔棌锛屾垨鍐呯疆 `percentile`/`d20` 鏃忥級锛?
+- 鎴愬姛绛夌骇 `checks.levels`锛氬竷灏斿叕寮忔寜澹版槑椤哄簭姹傚€硷紝棣栦釜涓虹湡鑰呰儨锛屾湯浣嶅厹搴曪紱
+- 鏄惧紡闅惧害 `checks.difficulties`锛堝彲閫夛級锛氬叕寮忛毦搴︾敤 `target` 鍏紡鏀瑰啓鐩爣锛堝ぇ澶辫触璺熼殢鏀瑰啓鍚庣洰鏍囥€佹垚鍔熸。浣嶈鍩虹鐩爣姊級锛岃嚜鍔ㄩ毦搴﹀彧鍒ゅぇ澶辫触骞舵槧灏勫埌澹版槑绛夌骇锛涘叧閿瘝鏈韩鏄暟鎹紝寮曟搸涓嶅唴缃换浣曢毦搴﹀悕锛?
+- 瀵规姉绛栫暐 `opposed`锛堝ぇ澶辫触绾?+ 鍚岀骇瑁佸喅鏂瑰紡锛夛紱
+- 浼ゅ鍔犲€艰〃锛坘ey 鍏紡 + 杩炵画琛岃〃锛宐onus 涓洪瀛愯〃杈惧紡锛夛紱
+- 娲剧敓灞炴€э紙formula / switch / lookup锛屾寜澹版槑椤哄簭绱Н鏁村瀷鍛藉悕绌洪棿锛夈€佺敓鍛芥潯銆佸垵濮嬪睘鎬э紱
+- 璧勬簮妫€瀹氾紙鐩爣鍥為€€鍏紡銆佹垚鍔熼棬妲涖€佹垚璐ユ崯澶便€佽寖鍥淬€乧lamp锛夛紱
+- 闅忔満琛?`tables`锛堟幏楠伴€夎銆佽鏂囨湰鍙唴宓?`{鈥` 瀛愭幏锛夈€佹垚闀挎瀹?`growth_checks`锛堟潯浠跺叕寮?+ 鎴愰暱閲?+ 涓婇檺 + 鎸夋潯鐩鐩栵級銆佷汉鐗╀綔鎴?`generation`锛堥鐐规硶灞炴€ц〃杈惧紡銆佺増鏈彉浣撱€佽喘鐐规硶鐐规暟姹?璐圭巼/鑷姩鍒嗛厤锛夈€?
 
-所有公式在加载期解析并做类型检查与变量白名单校验，运行期不再有「未知字段/拼错变量」类错误。内置书与用户书都产出同一个 `*engine.Book` 类型，它实现 `rules.RuleSystem`（manifest、ValidateConfig 重新编译源字节）以及应用层的可选能力（KeyResolver、ValidateCharacter）。
+鎵€鏈夊叕寮忓湪鍔犺浇鏈熻В鏋愬苟鍋氱被鍨嬫鏌ヤ笌鍙橀噺鐧藉悕鍗曟牎楠岋紝杩愯鏈熶笉鍐嶆湁銆屾湭鐭ュ瓧娈?鎷奸敊鍙橀噺銆嶇被閿欒銆傚唴缃功涓庣敤鎴蜂功閮戒骇鍑哄悓涓€涓?`*engine.Book` 绫诲瀷锛屽畠瀹炵幇 `rules.RuleSystem`锛坢anifest銆乂alidateConfig 閲嶆柊缂栬瘧婧愬瓧鑺傦級浠ュ強搴旂敤灞傜殑鍙€夎兘鍔涳紙KeyResolver銆乂alidateCharacter锛夈€?
 
-**数据包**（`datapacks/*.yaml`）是规则书的表兄弟：同一套随机表 schema，但只承载**与规则无关**的内容（随机姓名等）。它是独立的一类文件（独立加载器与 `*engine.DataPack` 类型），不进 `rules.Registry`，也不作为规则系统被选择；`engine.ParseDataPack` 严格解码并编译，`.sys validate` 会重新编译全部数据包。
+**鏁版嵁鍖?*锛坄datapacks/*.yaml`锛夋槸瑙勫垯涔︾殑琛ㄥ厔寮燂細鍚屼竴濂楅殢鏈鸿〃 schema锛屼絾鍙壙杞?*涓庤鍒欐棤鍏?*鐨勫唴瀹癸紙闅忔満濮撳悕绛夛級銆傚畠鏄嫭绔嬬殑涓€绫绘枃浠讹紙鐙珛鍔犺浇鍣ㄤ笌 `*engine.DataPack` 绫诲瀷锛夛紝涓嶈繘 `rules.Registry`锛屼篃涓嶄綔涓鸿鍒欑郴缁熻閫夋嫨锛沗engine.ParseDataPack` 涓ユ牸瑙ｇ爜骞剁紪璇戯紝`.sys validate` 浼氶噸鏂扮紪璇戝叏閮ㄦ暟鎹寘銆?
 
-规则书选择：显式 `--system` > 角色卡 `system_id` > 声明了 `default: true` 的书（内置为 coc7）> 恰好一本书时隐式默认；零本报 `RULE_NOT_FOUND`，多本且无默认书时报 `INVALID_ARGUMENT`。规则书的**短指令别名**（身份头的 `commands`）在注册时校验全局唯一，供 CLI 的人物作成入口使用。
+瑙勫垯涔﹂€夋嫨锛氭樉寮?`--system` > 瑙掕壊鍗?`system_id` > 澹版槑浜?`default: true` 鐨勪功锛堝唴缃负 coc7锛? 鎭板ソ涓€鏈功鏃堕殣寮忛粯璁わ紱闆舵湰鎶?`RULE_NOT_FOUND`锛屽鏈笖鏃犻粯璁や功鏃舵姤 `INVALID_ARGUMENT`銆傝鍒欎功鐨?*鐭寚浠ゅ埆鍚?*锛堣韩浠藉ご鐨?`commands`锛夊湪娉ㄥ唽鏃舵牎楠屽叏灞€鍞竴锛屼緵 CLI 鐨勪汉鐗╀綔鎴愬叆鍙ｄ娇鐢ㄣ€?
 
-> 与原始规格书（`trpg_dicebot_ai_project_spec.md` 建议的 manifest.yaml + defaults.yaml + skills.yaml 三文件）不同，本项目采用单规则书文件，避免同一版本的身份与数据分散维护。规格中的配置分离精神保留且更进一步：不仅数据在 YAML，连判定阈值、等级条件与派生公式也在 YAML；Go 侧只保留规则无关的解释器。
+> 涓庡師濮嬭鏍间功锛坄trpg_dicebot_ai_project_spec.md` 寤鸿鐨?manifest.yaml + defaults.yaml + skills.yaml 涓夋枃浠讹級涓嶅悓锛屾湰椤圭洰閲囩敤鍗曡鍒欎功鏂囦欢锛岄伩鍏嶅悓涓€鐗堟湰鐨勮韩浠戒笌鏁版嵁鍒嗘暎缁存姢銆傝鏍间腑鐨勯厤缃垎绂荤簿绁炰繚鐣欎笖鏇磋繘涓€姝ワ細涓嶄粎鏁版嵁鍦?YAML锛岃繛鍒ゅ畾闃堝€笺€佺瓑绾ф潯浠朵笌娲剧敓鍏紡涔熷湪 YAML锛汫o 渚у彧淇濈暀瑙勫垯鏃犲叧鐨勮В閲婂櫒銆?
 
-## 3. 骰子引擎与公式语言
+## 3. 楠板瓙寮曟搸涓庡叕寮忚瑷€
 
-骰子引擎（`internal/dice`）：
+楠板瓙寮曟搸锛坄internal/dice`锛夛細
 
-- 词法/递归下降解析产生 AST：`NumberNode / DiceNode / BinaryNode / UnaryNode`。
-- 解析（`dice.Parse`）与执行（`dice.Eval`）分离；多个骰组、运算与保留规则都在 AST 中保留完整明细。
-- `Source` 随机源接口：生产用 `CryptoSource`（crypto/rand），可复现用 `SeededSource`（PCG），测试用 `ScriptedSource`（脚本序列耗尽即报错，杜绝隐性随机依赖）。
-- 限制在解析阶段强制：单组骰数、总骰数、面数、嵌套深度；算术运算在执行前做 int64 溢出预判；除零分类为 `DIVIDE_BY_ZERO`。
-- 骰组修饰符：保留/丢弃（`kh/kl/dh/dl`）、爆骰（`!`）、重投（`r`）、成功计数（`c`）；求值顺序为 掷骰 → 重投 → 爆骰 → 保留/丢弃 → 取值，爆骰与重投各有安全上限（`Limits.MaxExplodeDice` / `Limits.MaxRerolls`）。计数语义是「本组值 = 满足条件的骰数」，其静态上下界为 `[0, 骰数]`。
-- 语句层（`dice.ParseStatement` / `Roller.RollStatement`）在纯表达式外包一层 `[n#] expr [比较目标]`：`n#` 重复（默认上限 10 轮）与比较后缀只存在于语句层；组内比较符（计数算子）属于表达式，故语句层先按纯表达式解析、失败才拆分尾部比较。规则书 YAML 填写的伤害/损失表达式走纯表达式入口，拒绝 `#` 与比较，两条语法边界互不污染。
-- `dice.ExprBounds` 对纯表达式静态求上下界（保留骰按保留数量、除法跨零含 ±1、恒零除数报 `DIVIDE_BY_ZERO`、溢出报错），供引擎在不掷骰、不消耗随机数的情况下求损失理论最大值。
+- 璇嶆硶/閫掑綊涓嬮檷瑙ｆ瀽浜х敓 AST锛歚NumberNode / DiceNode / BinaryNode / UnaryNode`銆?
+- 瑙ｆ瀽锛坄dice.Parse`锛変笌鎵ц锛坄dice.Eval`锛夊垎绂伙紱澶氫釜楠扮粍銆佽繍绠椾笌淇濈暀瑙勫垯閮藉湪 AST 涓繚鐣欏畬鏁存槑缁嗐€?
+- `Source` 闅忔満婧愭帴鍙ｏ細鐢熶骇鐢?`CryptoSource`锛坈rypto/rand锛夛紝鍙鐜扮敤 `SeededSource`锛圥CG锛夛紝娴嬭瘯鐢?`ScriptedSource`锛堣剼鏈簭鍒楄€楀敖鍗虫姤閿欙紝鏉滅粷闅愭€ч殢鏈轰緷璧栵級銆?
+- 闄愬埗鍦ㄨВ鏋愰樁娈靛己鍒讹細鍗曠粍楠版暟銆佹€婚鏁般€侀潰鏁般€佸祵濂楁繁搴︼紱绠楁湳杩愮畻鍦ㄦ墽琛屽墠鍋?int64 婧㈠嚭棰勫垽锛涢櫎闆跺垎绫讳负 `DIVIDE_BY_ZERO`銆?
+- 楠扮粍淇グ绗︼細淇濈暀/涓㈠純锛坄kh/kl/dh/dl`锛夈€佺垎楠帮紙`!`锛夈€侀噸鎶曪紙`r`锛夈€佹垚鍔熻鏁帮紙`c`锛夛紱姹傚€奸『搴忎负 鎺烽 鈫?閲嶆姇 鈫?鐖嗛 鈫?淇濈暀/涓㈠純 鈫?鍙栧€硷紝鐖嗛涓庨噸鎶曞悇鏈夊畨鍏ㄤ笂闄愶紙`Limits.MaxExplodeDice` / `Limits.MaxRerolls`锛夈€傝鏁拌涔夋槸銆屾湰缁勫€?= 婊¤冻鏉′欢鐨勯鏁般€嶏紝鍏堕潤鎬佷笂涓嬬晫涓?`[0, 楠版暟]`銆?
+- 璇彞灞傦紙`dice.ParseStatement` / `Roller.RollStatement`锛夊湪绾〃杈惧紡澶栧寘涓€灞?`[n#] expr [姣旇緝鐩爣]`锛歚n#` 閲嶅锛堥粯璁や笂闄?10 杞級涓庢瘮杈冨悗缂€鍙瓨鍦ㄤ簬璇彞灞傦紱缁勫唴姣旇緝绗︼紙璁℃暟绠楀瓙锛夊睘浜庤〃杈惧紡锛屾晠璇彞灞傚厛鎸夌函琛ㄨ揪寮忚В鏋愩€佸け璐ユ墠鎷嗗垎灏鹃儴姣旇緝銆傝鍒欎功 YAML 濉啓鐨勪激瀹?鎹熷け琛ㄨ揪寮忚蛋绾〃杈惧紡鍏ュ彛锛屾嫆缁?`#` 涓庢瘮杈冿紝涓ゆ潯璇硶杈圭晫浜掍笉姹℃煋銆?
+- `dice.ExprBounds` 瀵圭函琛ㄨ揪寮忛潤鎬佹眰涓婁笅鐣岋紙淇濈暀楠版寜淇濈暀鏁伴噺銆侀櫎娉曡法闆跺惈 卤1銆佹亽闆堕櫎鏁版姤 `DIVIDE_BY_ZERO`銆佹孩鍑烘姤閿欙級锛屼緵寮曟搸鍦ㄤ笉鎺烽銆佷笉娑堣€楅殢鏈烘暟鐨勬儏鍐典笅姹傛崯澶辩悊璁烘渶澶у€笺€?
 
-规则书公式语言（`internal/engine/formula`）是另一套更小的纯表达式语言：只有 int/bool 两值、算术与比较、`&& || !`、`abs/min/max` 白名单函数；无骰子、无字符串、无副作用；除法为数学 floor（与骰子表达式的向零取整不同）。变量集合由各声明段静态限定，加载期 `Check`，非法规则书不可能进入运行期。
+瑙勫垯涔﹀叕寮忚瑷€锛坄internal/engine/formula`锛夋槸鍙︿竴濂楁洿灏忕殑绾〃杈惧紡璇█锛氬彧鏈?int/bool 涓ゅ€笺€佺畻鏈笌姣旇緝銆乣&& || !`銆乣abs/min/max` 鐧藉悕鍗曞嚱鏁帮紱鏃犻瀛愩€佹棤瀛楃涓层€佹棤鍓綔鐢紱闄ゆ硶涓烘暟瀛?floor锛堜笌楠板瓙琛ㄨ揪寮忕殑鍚戦浂鍙栨暣涓嶅悓锛夈€傚彉閲忛泦鍚堢敱鍚勫０鏄庢闈欐€侀檺瀹氾紝鍔犺浇鏈?`Check`锛岄潪娉曡鍒欎功涓嶅彲鑳借繘鍏ヨ繍琛屾湡銆?
 
-## 4. 百分骰判定要点（由 coc7.yaml 声明）
+## 4. 鐧惧垎楠板垽瀹氳鐐癸紙鐢?coc7.yaml 澹版槑锛?
 
-- d100 由「个位 d10（面 1..9,10→0）+ 十位 d10（面 1→00 … 10→90）」组成，00+0 = 100。
-- 奖励/惩罚骰先成对抵消；奖励取最小十位候选，惩罚取最大十位候选；并列保留先掷出的那颗。
-- 成功等级按声明顺序求值：大失败条件最先判定（异常最差结果，优先于常规阶梯），随后极难（≤⌊目标/5⌋）、困难（≤⌊目标/2⌋）、普通（≤目标），兜底失败；目标 <50 时 96–100 大失败，≥50 时仅 100 大失败。
-- 检定结果同时保留：原始候选、选中十位及索引、个位、最终骰值、目标值、等级 rank（声明索引）与 level_code、中文标签与解释文本。
-- 资源检定的目标值允许 0（SAN 耗尽边缘）：此时任何 ≥1 都是失败，100 为大失败。
-- 资源检定可声明 `fumble_loss: max`：大失败时失败损失取静态最大值（定值即自身，骰子式取保留骰面之和，由 `dice.ExprBounds` 求出），结果标记 `fumble_loss_max` 且不产生损失掷骰节点；coc7 理智检定以此实现 CoC 7e 约定。
-- **机制（Mechanic）**：检定的掷法与判定方向由机制族决定（`percentile` 掷 d100 且「越小越好」、`d20` 掷 d20 且「越大越好」），规则书用 `mechanic.type` 选择；机制接口只回答四个问题——掷什么骰、奖励/惩罚骰如何作用、骰值与目标如何比较（`Meets`）、结果里展示什么。成功等级、难度、目标算式等规则全部与机制无关，由规则书声明，因此新增机制族不必改动引擎其它部分。
-- 对抗检定是纯函数 `Book.Opposed(a, b)`：大失败必败（双大失败平），其余等级声明越靠前越好，同级按 `tie_break`（CoC 比目标值，再同为平局）。
+- d100 鐢便€屼釜浣?d10锛堥潰 1..9,10鈫?锛? 鍗佷綅 d10锛堥潰 1鈫?0 鈥?10鈫?0锛夈€嶇粍鎴愶紝00+0 = 100銆?
+- 濂栧姳/鎯╃綒楠板厛鎴愬鎶垫秷锛涘鍔卞彇鏈€灏忓崄浣嶅€欓€夛紝鎯╃綒鍙栨渶澶у崄浣嶅€欓€夛紱骞跺垪淇濈暀鍏堟幏鍑虹殑閭ｉ銆?
+- 鎴愬姛绛夌骇鎸夊０鏄庨『搴忔眰鍊硷細澶уけ璐ユ潯浠舵渶鍏堝垽瀹氾紙寮傚父鏈€宸粨鏋滐紝浼樺厛浜庡父瑙勯樁姊級锛岄殢鍚庢瀬闅撅紙鈮も寠鐩爣/5鈱嬶級銆佸洶闅撅紙鈮も寠鐩爣/2鈱嬶級銆佹櫘閫氾紙鈮ょ洰鏍囷級锛屽厹搴曞け璐ワ紱鐩爣 <50 鏃?96鈥?00 澶уけ璐ワ紝鈮?0 鏃朵粎 100 澶уけ璐ャ€?
+- 妫€瀹氱粨鏋滃悓鏃朵繚鐣欙細鍘熷鍊欓€夈€侀€変腑鍗佷綅鍙婄储寮曘€佷釜浣嶃€佹渶缁堥鍊笺€佺洰鏍囧€笺€佺瓑绾?rank锛堝０鏄庣储寮曪級涓?level_code銆佷腑鏂囨爣绛句笌瑙ｉ噴鏂囨湰銆?
+- 璧勬簮妫€瀹氱殑鐩爣鍊煎厑璁?0锛圫AN 鑰楀敖杈圭紭锛夛細姝ゆ椂浠讳綍 鈮? 閮芥槸澶辫触锛?00 涓哄ぇ澶辫触銆?
+- 璧勬簮妫€瀹氬彲澹版槑 `fumble_loss: max`锛氬ぇ澶辫触鏃跺け璐ユ崯澶卞彇闈欐€佹渶澶у€硷紙瀹氬€煎嵆鑷韩锛岄瀛愬紡鍙栦繚鐣欓闈箣鍜岋紝鐢?`dice.ExprBounds` 姹傚嚭锛夛紝缁撴灉鏍囪 `fumble_loss_max` 涓斾笉浜х敓鎹熷け鎺烽鑺傜偣锛沜oc7 鐞嗘櫤妫€瀹氫互姝ゅ疄鐜?CoC 7e 绾﹀畾銆?
+- **鏈哄埗锛圡echanic锛?*锛氭瀹氱殑鎺锋硶涓庡垽瀹氭柟鍚戠敱鏈哄埗鏃忓喅瀹氾紙`percentile` 鎺?d100 涓斻€岃秺灏忚秺濂姐€嶃€乣d20` 鎺?d20 涓斻€岃秺澶ц秺濂姐€嶏級锛岃鍒欎功鐢?`mechanic.type` 閫夋嫨锛涙満鍒舵帴鍙ｅ彧鍥炵瓟鍥涗釜闂鈥斺€旀幏浠€涔堥銆佸鍔?鎯╃綒楠板浣曚綔鐢ㄣ€侀鍊间笌鐩爣濡備綍姣旇緝锛坄Meets`锛夈€佺粨鏋滈噷灞曠ず浠€涔堛€傛垚鍔熺瓑绾с€侀毦搴︺€佺洰鏍囩畻寮忕瓑瑙勫垯鍏ㄩ儴涓庢満鍒舵棤鍏筹紝鐢辫鍒欎功澹版槑锛屽洜姝ゆ柊澧炴満鍒舵棌涓嶅繀鏀瑰姩寮曟搸鍏跺畠閮ㄥ垎銆?
+- 瀵规姉妫€瀹氭槸绾嚱鏁?`Book.Opposed(a, b)`锛氬ぇ澶辫触蹇呰触锛堝弻澶уけ璐ュ钩锛夛紝鍏朵綑绛夌骇澹版槑瓒婇潬鍓嶈秺濂斤紝鍚岀骇鎸?`tie_break`锛圕oC 姣旂洰鏍囧€硷紝鍐嶅悓涓哄钩灞€锛夈€?
 
-## 5. 存储与平台差异
+## 5. 瀛樺偍涓庡钩鍙板樊寮?
 
-- **冷热分工**：规则书与数据包是冷数据（启动读一次、人工编辑）→ YAML 文件；角色卡与其它可写状态是热数据（每次检定都写）→ 一个 SQLite 数据库（`internal/storage/sqlitedb`，纯 Go 驱动）。`internal/storage` 只定义接口（存储缝），`internal/app` 只依赖接口，换后端不动业务代码。
-- 布局：`<数据根>/dicegirl.db`（角色卡、掷骰统计、本地状态、先攻、牌堆、卡备份）、`rulebooks/*.yaml`、`datapacks/*.yaml`、`legacy/`（旧版 YAML 数据根迁移过来的原文件）。
-- 写入：SQLite 事务（角色卡、统计、状态、先攻、牌堆）；仍是 YAML 的文件（规则书、数据包）用「同目录临时文件 → 写入 → Sync → Chmod 0600 → Close → Rename」。POSIX 上 rename 是原子的；Windows 上 Go 运行时使用带替换语义的 API，同为原子替换。目录 fsync 未执行（跨平台支持差），崩溃后已 rename 的文件内容由文件 sync 保证。
-- 更新前备份：数据库里的 `card_backups` 表保留每张卡的旧版本（份数由 `DICEGIRL_BACKUP_KEEP` 决定）。
-- 路径安全：ID 必须匹配 `^[a-z0-9][a-z0-9-]{3,63}$`；角色卡在数据库里没有路径拼接，读写前仍做 ID 校验；仍是 YAML 的文件读取前 `Lstat` 拒绝符号链接。残留限制：数据根是单用户本地目录，未对抗 TOCTOU 竞争替换。
-- 读取错误细分为 `NOT_FOUND / INVALID_DATA / UNSUPPORTED_SCHEMA_VERSION / VALIDATION_ERROR / STORAGE_READ_FAILED`。
-- 三份数据各自独立版本号：角色卡 `character.SchemaVersion = "1"`、规则书 `engine.SchemaVersion = "1"`、数据库 schema 由 `CREATE TABLE IF NOT EXISTS` 管理。
+- **鍐风儹鍒嗗伐**锛氳鍒欎功涓庢暟鎹寘鏄喎鏁版嵁锛堝惎鍔ㄨ涓€娆°€佷汉宸ョ紪杈戯級鈫?YAML 鏂囦欢锛涜鑹插崱涓庡叾瀹冨彲鍐欑姸鎬佹槸鐑暟鎹紙姣忔妫€瀹氶兘鍐欙級鈫?涓€涓?SQLite 鏁版嵁搴擄紙`internal/storage/sqlitedb`锛岀函 Go 椹卞姩锛夈€俙internal/storage` 鍙畾涔夋帴鍙ｏ紙瀛樺偍缂濓級锛宍internal/app` 鍙緷璧栨帴鍙ｏ紝鎹㈠悗绔笉鍔ㄤ笟鍔′唬鐮併€?
+- 甯冨眬锛歚<鏁版嵁鏍?/dicegirl.db`锛堣鑹插崱銆佹幏楠扮粺璁°€佹湰鍦扮姸鎬併€佸厛鏀汇€佺墝鍫嗐€佸崱澶囦唤锛夈€乣rulebooks/*.yaml`銆乣datapacks/*.yaml`銆乣legacy/`锛堟棫鐗?YAML 鏁版嵁鏍硅縼绉昏繃鏉ョ殑鍘熸枃浠讹級銆?
+- 鍐欏叆锛歋QLite 浜嬪姟锛堣鑹插崱銆佺粺璁°€佺姸鎬併€佸厛鏀汇€佺墝鍫嗭級锛涗粛鏄?YAML 鐨勬枃浠讹紙瑙勫垯涔︺€佹暟鎹寘锛夌敤銆屽悓鐩綍涓存椂鏂囦欢 鈫?鍐欏叆 鈫?Sync 鈫?Chmod 0600 鈫?Close 鈫?Rename銆嶃€侾OSIX 涓?rename 鏄師瀛愮殑锛沇indows 涓?Go 杩愯鏃朵娇鐢ㄥ甫鏇挎崲璇箟鐨?API锛屽悓涓哄師瀛愭浛鎹€傜洰褰?fsync 鏈墽琛岋紙璺ㄥ钩鍙版敮鎸佸樊锛夛紝宕╂簝鍚庡凡 rename 鐨勬枃浠跺唴瀹圭敱鏂囦欢 sync 淇濊瘉銆?
+- 鏇存柊鍓嶅浠斤細鏁版嵁搴撻噷鐨?`card_backups` 琛ㄤ繚鐣欐瘡寮犲崱鐨勬棫鐗堟湰锛堜唤鏁扮敱 `DICEGIRL_BACKUP_KEEP` 鍐冲畾锛夈€?
+- 璺緞瀹夊叏锛欼D 蹇呴』鍖归厤 `^[a-z0-9][a-z0-9-]{3,63}$`锛涜鑹插崱鍦ㄦ暟鎹簱閲屾病鏈夎矾寰勬嫾鎺ワ紝璇诲啓鍓嶄粛鍋?ID 鏍￠獙锛涗粛鏄?YAML 鐨勬枃浠惰鍙栧墠 `Lstat` 鎷掔粷绗﹀彿閾炬帴銆傛畫鐣欓檺鍒讹細鏁版嵁鏍规槸鍗曠敤鎴锋湰鍦扮洰褰曪紝鏈鎶?TOCTOU 绔炰簤鏇挎崲銆?
+- 璇诲彇閿欒缁嗗垎涓?`NOT_FOUND / INVALID_DATA / UNSUPPORTED_SCHEMA_VERSION / VALIDATION_ERROR / STORAGE_READ_FAILED`銆?
+- 涓変唤鏁版嵁鍚勮嚜鐙珛鐗堟湰鍙凤細瑙掕壊鍗?`character.SchemaVersion = "1"`銆佽鍒欎功 `engine.SchemaVersion = "1"`銆佹暟鎹簱 schema 鐢?`CREATE TABLE IF NOT EXISTS` 绠＄悊銆?
 
-## 6. 机器人平台接入边界（2026-10-21 起实施）
+## 6. 鏈哄櫒浜哄钩鍙版帴鍏ヨ竟鐣岋紙2026-10-21 璧峰疄鏂斤級
 
-聊天风格短指令（`r/rs/ra/rc/sc/st/pc/set/ti/li/ak/name/en/rh` 与 `.。!！` 前缀）的解析全部集中在 **`chatcore/`**（从原 `cmd/dicegirl/cli` 原样抽出）：它只把自由文本 token 翻译为 app 用例调用并渲染文本/JSON，`internal/` 没有任何别名知识。统一入口是 `chatcore.Execute(ctx, app, stdin, stdout, stderr, jsonMode, cmd, args) int`，返回进程式退出码（0/2/1）与 `Unrecognized(-1)`；CLI 的 `cli.Run` 与机器人适配器走同一条代码路径。
+鑱婂ぉ椋庢牸鐭寚浠わ紙`r/rs/ra/rc/sc/st/pc/set/ti/li/ak/name/en/rh` 涓?`.銆?锛乣 鍓嶇紑锛夌殑瑙ｆ瀽鍏ㄩ儴闆嗕腑鍦?**`chatcore/`**锛堜粠鍘?`cmd/dicegirl/cli` 鍘熸牱鎶藉嚭锛夛細瀹冨彧鎶婅嚜鐢辨枃鏈?token 缈昏瘧涓?app 鐢ㄤ緥璋冪敤骞舵覆鏌撴枃鏈?JSON锛宍internal/` 娌℃湁浠讳綍鍒悕鐭ヨ瘑銆傜粺涓€鍏ュ彛鏄?`chatcore.Execute(ctx, app, stdin, stdout, stderr, jsonMode, cmd, args) int`锛岃繑鍥炶繘绋嬪紡閫€鍑虹爜锛?/2/1锛変笌 `Unrecognized(-1)`锛汣LI 鐨?`cli.Run` 涓庢満鍣ㄤ汉閫傞厤鍣ㄨ蛋鍚屼竴鏉′唬鐮佽矾寰勩€?
 
-平台无关的多租户设施在 **`bot/`**：
+骞冲彴鏃犲叧鐨勫绉熸埛璁炬柦鍦?**`bot/`**锛?
 
-- `Manager` 按会话范围隔离：`bot.ScopeGroup/<群 openid>` 与 `bot.ScopeC2C/<用户 openid>` 各对应一个 data root（`<基座>/groups/<id>/`、`<基座>/c2c/<id>/`）与一个 `*app.App`（独立 SQLite）。openid 不安全时退化为 `sha256-...` 目录名，杜绝路径逃逸；
-- 打开的租户按 LRU 驱逐（默认 64 个，忙租户不关闭），关闭即关库；每租户有命令锁，串行化先攻/牌堆/抉择等读-改-写；
-- 统一请求路径 `Manager.RunLine(ctx, kind, id, 消息文本, jsonMode)`：切词 → 取租户 → `chatcore.Execute` → 返回渲染文本。
+- `Manager` 鎸変細璇濊寖鍥撮殧绂伙細`bot.ScopeGroup/<缇?openid>` 涓?`bot.ScopeC2C/<鐢ㄦ埛 openid>` 鍚勫搴斾竴涓?data root锛坄<鍩哄骇>/groups/<id>/`銆乣<鍩哄骇>/c2c/<id>/`锛変笌涓€涓?`*app.App`锛堢嫭绔?SQLite锛夈€俹penid 涓嶅畨鍏ㄦ椂閫€鍖栦负 `sha256-...` 鐩綍鍚嶏紝鏉滅粷璺緞閫冮€革紱
+- 鎵撳紑鐨勭鎴锋寜 LRU 椹遍€愶紙榛樿 64 涓紝蹇欑鎴蜂笉鍏抽棴锛夛紝鍏抽棴鍗冲叧搴擄紱姣忕鎴锋湁鍛戒护閿侊紝涓茶鍖栧厛鏀?鐗屽爢/鎶夋嫨绛夎-鏀?鍐欙紱
+- 缁熶竴璇锋眰璺緞 `Manager.RunLine(ctx, kind, id, 娑堟伅鏂囨湰, jsonMode)`锛氬垏璇?鈫?鍙栫鎴?鈫?`chatcore.Execute` 鈫?杩斿洖娓叉煋鏂囨湰銆?
 
-平台适配器位于 `cmd/` 下（首个为 `cmd/qqbot`，QQ 官方机器人 API），只做传输：
+骞冲彴閫傞厤鍣ㄤ綅浜?`cmd/` 涓嬶紙棣栦釜涓?`cmd/qqbot`锛孮Q 瀹樻柟鏈哄櫒浜?API锛夛紝鍙仛浼犺緭锛?
 
-- 输入侧把平台事件映射为「范围 + 一行文本」（群消息的@残留、附件过滤在适配器处理）；
-- 输出侧把 `bot.Result.Out/Err` 发回平台（消息长度截断、主动/被动回复规则是平台知识）；
-- 平台专属状态放在群数据根旁的 `adapter.json`（适配器私有，不进领域层）：成员与私聊 openid 的绑定、`pc tag` 的成员→卡映射、暗骰围观名单、战报会话；
-- **隐藏掷骰与围观**：QQ 群事件不提供 `union_openid`，群成员与 `user_openid` 无法直接关联，因此首次使用 `.rh`/`.ob` 时由适配器发一次性绑定码，成员私聊机器人「绑定 <码>」后建立映射并补发暂存的结果；
-- **群内个人绑卡**：`chatcore.WithDefaultCharacter(id)` 让未显式指定角色的命令使用发送者绑定的卡；CLI 不设该选项，行为不变；
-- **战报**：`log start/stop/...` 在群数据根 `logs/*.md` 记录执行过的指令与结果；
-- 这些指令只存在于适配器，CLI 的帮助把它们标注为「仅机器人」；chatcore 的 CLI 路径对 `rh` 继续报「需要聊天平台适配器」。
+- 杈撳叆渚ф妸骞冲彴浜嬩欢鏄犲皠涓恒€岃寖鍥?+ 涓€琛屾枃鏈€嶏紙缇ゆ秷鎭殑@娈嬬暀銆侀檮浠惰繃婊ゅ湪閫傞厤鍣ㄥ鐞嗭級锛?
+- 杈撳嚭渚ф妸 `bot.Result.Out/Err` 鍙戝洖骞冲彴锛堟秷鎭暱搴︽埅鏂€佷富鍔?琚姩鍥炲瑙勫垯鏄钩鍙扮煡璇嗭級锛?
+- 骞冲彴涓撳睘鐘舵€佹斁鍦ㄧ兢鏁版嵁鏍规梺鐨?`adapter.json`锛堥€傞厤鍣ㄧ鏈夛紝涓嶈繘棰嗗煙灞傦級锛氭垚鍛樹笌绉佽亰 openid 鐨勭粦瀹氥€乣pc tag` 鐨勬垚鍛樷啋妗屸啋鍗′袱灞傛槧灏勶紙鏃ф墎骞崇粨鏋勫姞杞藉嵆杩佺Щ锛夈€佹殫楠?鏆楁娊鍥磋鍚嶅崟銆佹垬鎶ヤ細璇濓紱
+- **妗屼綔鐢ㄥ煙**锛氱兢娑堟伅鍏堢粡 `App.ActiveTableID` 瑙ｆ瀽褰撳墠妗岋紝閫傞厤鍣ㄦ嵁姝ら€夋嫨璇ユ垚鍛樼殑妗屽唴缁戝崱锛沗chatcore.Execute` 姣忚姹傛妸娲诲姩妗?id 鏀捐繘 ctx锛坄storage.WithTable`锛夛紝app 灞傜殑鍏堟敾/鐗屽爢/褰撳墠鍗¤鍐欏叏閮ㄥ甫妗屼綔鐢ㄥ煙锛?
+- **闅愯棌鎺烽/鏆楁娊涓庡洿瑙?*锛歈Q 缇や簨浠朵笉鎻愪緵 `union_openid`锛岀兢鎴愬憳涓?`user_openid` 鏃犳硶鐩存帴鍏宠仈锛屽洜姝ら娆′娇鐢?`.rh`/`.drawh`/`.ob` 鏃剁敱閫傞厤鍣ㄥ彂涓€娆℃€х粦瀹氱爜锛屾垚鍛樼鑱婃満鍣ㄤ汉銆岀粦瀹?<鐮?銆嶅悗寤虹珛鏄犲皠骞惰ˉ鍙戞殏瀛樼殑缁撴灉锛沗.drawh` 鍦ㄩ€傞厤鍣ㄥ唴缈昏瘧鎴愭櫘閫?`draw` 琛岃蛋鍚屼竴鎶曢€掗€氶亾锛?
+- **缇ゅ唴涓汉缁戝崱**锛歚chatcore.WithDefaultCharacter(id)` 璁╂湭鏄惧紡鎸囧畾瑙掕壊鐨勫懡浠や娇鐢ㄥ彂閫佽€呭湪**褰撳墠妗?*缁戝畾鐨勫崱锛沗chatcore.WithCardCreatedHook` 鍦ㄧ敓鎴?鏂板缓鍗″苟婵€娲绘椂鍥炶皟锛岄€傞厤鍣ㄥ湪鍚屼竴涓茶璇锋眰鍐呮妸鏂板崱鍐欏叆璇ユ缁戝畾锛汣LI 涓嶈杩欎袱涓€夐」锛岃涓轰笉鍙橈紱
+- **鎴樻姤**锛歚log start/stop/...` 鍦ㄧ兢鏁版嵁鏍?`logs/*.md` 璁板綍鎵ц杩囩殑鎸囦护涓庣粨鏋滐紱
+- 杩欎簺鎸囦护鍙瓨鍦ㄤ簬閫傞厤鍣紝CLI 鐨勫府鍔╂妸瀹冧滑鏍囨敞涓恒€屼粎鏈哄櫒浜恒€嶏紱chatcore 鐨?CLI 璺緞瀵?`rh`/`drawh` 缁х画鎶ャ€岄渶瑕佽亰澶╁钩鍙伴€傞厤鍣ㄣ€嶃€?

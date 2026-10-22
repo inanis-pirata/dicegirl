@@ -1,9 +1,15 @@
 package main
 
 // Per-group adapter state: the member→private-openid links learned through
-// binding codes, the member→card bindings (`.pc tag`), the hidden-roll
-// observer list (`.ob`) and the current session log (`.log`). It lives next
-// to the group's own data root, so it is isolated per group like the games.
+// binding codes, the per-table member→card bindings (`.pc tag`), the
+// hidden-result observer list (`.ob`) and the current session log (`.log`).
+// It lives next to the group's own data root, so it is isolated per group
+// like the games.
+//
+// Bindings are scoped by game table: one member may be bound to a different
+// character card on each table the group runs. Files written before tables
+// existed keep a flat member→card shape and are migrated on load to the
+// implicit default table.
 //
 // All access goes through groupStore, which serializes read-modify-write and
 // persists atomically.
@@ -12,8 +18,11 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sort"
 	"sync"
 	"time"
+
+	"dicegirl/internal/storage"
 )
 
 type memberLink struct {
@@ -41,11 +50,49 @@ type logState struct {
 }
 
 type groupState struct {
-	Links     map[string]memberLink    `json:"links"`
-	Bindings  map[string]cardBinding   `json:"bindings"`
-	Observers map[string]observerEntry `json:"observers"`
-	ObEnabled bool                     `json:"ob_enabled"`
-	Log       logState                 `json:"log"`
+	Links     map[string]memberLink             `json:"links"`
+	Bindings  map[string]map[string]cardBinding `json:"bindings"`
+	Observers map[string]observerEntry          `json:"observers"`
+	ObEnabled bool                              `json:"ob_enabled"`
+	Log       logState                          `json:"log"`
+}
+
+// UnmarshalJSON accepts both the current nested bindings shape
+// (member → table → card) and the legacy flat one (member → card), migrating
+// flat entries to the implicit default table.
+func (s *groupState) UnmarshalJSON(data []byte) error {
+	type alias struct {
+		Links     map[string]memberLink    `json:"links"`
+		Bindings  json.RawMessage          `json:"bindings"`
+		Observers map[string]observerEntry `json:"observers"`
+		ObEnabled bool                     `json:"ob_enabled"`
+		Log       logState                 `json:"log"`
+	}
+	var raw alias
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	s.Links = raw.Links
+	s.Observers = raw.Observers
+	s.ObEnabled = raw.ObEnabled
+	s.Log = raw.Log
+
+	nested := map[string]map[string]cardBinding{}
+	if len(raw.Bindings) > 0 {
+		if err := json.Unmarshal(raw.Bindings, &nested); err == nil {
+			s.Bindings = nested
+		} else {
+			flat := map[string]cardBinding{}
+			if err := json.Unmarshal(raw.Bindings, &flat); err != nil {
+				return err
+			}
+			s.Bindings = make(map[string]map[string]cardBinding, len(flat))
+			for member, b := range flat {
+				s.Bindings[member] = map[string]cardBinding{storage.DefaultTableID: b}
+			}
+		}
+	}
+	return nil
 }
 
 func (s *groupState) normalize() {
@@ -53,7 +100,7 @@ func (s *groupState) normalize() {
 		s.Links = map[string]memberLink{}
 	}
 	if s.Bindings == nil {
-		s.Bindings = map[string]cardBinding{}
+		s.Bindings = map[string]map[string]cardBinding{}
 	}
 	if s.Observers == nil {
 		s.Observers = map[string]observerEntry{}
@@ -130,14 +177,44 @@ func (s *groupStore) link(memberOpenid string) (string, bool) {
 	return out, ok
 }
 
-// binding returns the card bound to a group member, if any.
-func (s *groupStore) binding(memberOpenid string) (cardBinding, bool) {
+// binding returns the card a member has bound on the given table.
+func (s *groupStore) binding(memberOpenid, tableID string) (cardBinding, bool) {
 	var out cardBinding
 	var ok bool
 	s.read(func(st *groupState) {
-		out, ok = st.Bindings[memberOpenid]
+		out, ok = bindingOn(st, memberOpenid, tableID)
 	})
 	return out, ok
+}
+
+// bindingOn is binding for callers that already hold the state lock.
+func bindingOn(gs *groupState, memberOpenid, tableID string) (cardBinding, bool) {
+	if perTable, ok := gs.Bindings[memberOpenid]; ok {
+		if b, ok := perTable[tableID]; ok {
+			return b, true
+		}
+	}
+	return cardBinding{}, false
+}
+
+// anyBinding returns one of the member's bindings (the current table
+// preferred, then the lexicographically first table), for labels where the
+// table is unknown.
+func anyBinding(gs *groupState, memberOpenid, tableID string) (cardBinding, bool) {
+	perTable, ok := gs.Bindings[memberOpenid]
+	if !ok || len(perTable) == 0 {
+		return cardBinding{}, false
+	}
+	if b, ok := perTable[tableID]; ok {
+		return b, true
+	}
+	ids := make([]string, 0, len(perTable))
+	for id := range perTable {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	b := perTable[ids[0]]
+	return b, true
 }
 
 // observerUserOpenids returns the private openids of every enabled observer
