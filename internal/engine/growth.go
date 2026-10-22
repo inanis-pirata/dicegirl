@@ -18,11 +18,11 @@ import (
 //
 //	growth_checks:
 //	  default:
-//	    condition: "roll <= target"   # 1d100 ≤ 当前技能值则成长
+//	    condition: "roll > target"    # CoC 7e：1d100 高于当前技能值才成长
 //	    gain: "1d10"
 //	    cap: 99
 //	  overrides:
-//	    - { key: firearms_handgun, gain: "1d10", cap: 50 }
+//	    - { key: skill:dodge, gain: "1d6", cap: 99 }
 
 // rawGrowthChecks is the rulebook section for skill growth.
 type rawGrowthChecks struct {
@@ -219,7 +219,7 @@ func (b *Book) RunGrowth(ctx context.Context, gc *compiledGrowthCheck, in Growth
 		label = growthKeyLabel(in.Key)
 	}
 	if !grew {
-		res.Explanation = fmt.Sprintf("[%s] 掷 %d 未成长（目标 %d）", label, roll.Total, target)
+		res.Explanation = fmt.Sprintf("[%s] 掷 %d 未成长（需高于现值 %d）", label, roll.Total, target)
 		return res, nil
 	}
 	gainExpr := gc.gain
@@ -242,11 +242,11 @@ func (b *Book) RunGrowth(ctx context.Context, gc *compiledGrowthCheck, in Growth
 	res.Gain = after - in.Value
 	res.Grew = res.Gain > 0
 	if !res.Grew {
-		res.Explanation = fmt.Sprintf("[%s] 掷 %d ≤ 目标 %d，但已达上限 %d，未成长",
+		res.Explanation = fmt.Sprintf("[%s] 掷 %d 高于现值 %d，但已达上限 %d，未成长",
 			label, roll.Total, target, gc.cap)
 		return res, nil
 	}
-	res.Explanation = fmt.Sprintf("[%s] 掷 %d ≤ 目标 %d，成长 +%d（%d → %d，上限 %d）",
+	res.Explanation = fmt.Sprintf("[%s] 掷 %d 高于现值 %d，成长 +%d（%d → %d，上限 %d）",
 		label, roll.Total, target, res.Gain, in.Value, after, gc.cap)
 	return res, nil
 }

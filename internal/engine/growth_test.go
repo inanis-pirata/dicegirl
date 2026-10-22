@@ -11,11 +11,11 @@ import (
 	"dicegirl/rulebooks"
 )
 
-// A growth check rolls 1d100 and grows the skill when the roll is not
-// higher than the current value (the CoC 7e rule).
+// A growth check rolls 1d100 and grows the skill when the roll is higher
+// than the current value (the CoC 7e rule: high skills are harder to grow).
 func TestGrowthCheck(t *testing.T) {
-	// 1d100 -> 42 <= 60: the skill grows by the 1d10 gain (roll 3).
-	b := scriptedBook(t, 41, 2)
+	// 1d100 -> 88 > 60: the skill grows by the 1d10 gain (roll 3).
+	b := scriptedBook(t, 87, 2)
 	key, ok := b.GrowthKey("心理学")
 	if !ok || key != "skill:psychology" {
 		t.Fatalf("growth key = %q", key)
@@ -25,7 +25,6 @@ func TestGrowthCheck(t *testing.T) {
 		t.Fatal("rulebook declares no growth check")
 	}
 
-	// 1d100 -> 42 <= 60: the skill grows by the 1d10 gain (roll 3).
 	res, err := b.RunGrowth(context.Background(), gc, engine.GrowthInput{
 		Key:   key,
 		Name:  "心理学",
@@ -42,12 +41,11 @@ func TestGrowthCheck(t *testing.T) {
 	}
 }
 
-// A roll above the current value does not grow the skill.
+// A roll at or below the current value does not grow the skill.
 func TestGrowthNoImprovement(t *testing.T) {
-	// 1d100 -> 88 > 60
-	b := scriptedBook(t, 87)
+	// 1d100 -> 42 <= 60: no growth, so no gain roll is taken.
+	b := scriptedBook(t, 41)
 	gc, _ := b.GrowthCheck("skill:psychology")
-	// 1d100 -> 88 > 60
 	res, err := b.RunGrowth(context.Background(), gc, engine.GrowthInput{
 		Key:   "skill:psychology",
 		Name:  "心理学",
@@ -66,10 +64,9 @@ func TestGrowthNoImprovement(t *testing.T) {
 
 // The cap limits the grown value.
 func TestGrowthCap(t *testing.T) {
-	// 1d100 -> 42 <= 95, gain 1d10 -> 10, capped at 99.
-	b := scriptedBook(t, 41, 9)
+	// 1d100 -> 96 > 95, gain 1d10 -> 10, capped at 99.
+	b := scriptedBook(t, 95, 9)
 	gc, _ := b.GrowthCheck("skill:psychology")
-	// 1d100 -> 42 <= 95, gain 1d10 -> 10, capped at 99.
 	res, err := b.RunGrowth(context.Background(), gc, engine.GrowthInput{
 		Key:   "skill:psychology",
 		Name:  "心理学",
@@ -83,29 +80,33 @@ func TestGrowthCap(t *testing.T) {
 	}
 }
 
-// Per-key overrides replace the default rule (CoC 7e special cases).
-func TestGrowthOverride(t *testing.T) {
+// The Investigator Handbook's 50/75 limits are creation-time personal
+// interest caps, not growth caps: handgun and pilot grow with the default
+// rule up to 99.
+func TestGrowthNoCreationCaps(t *testing.T) {
 	b := coc7Book(t, nil)
-	key, ok := b.GrowthKey("射击（手枪）")
-	if !ok || key != "skill:firearms_handgun" {
-		t.Fatalf("growth key = %q", key)
-	}
-	gc, ok := b.GrowthCheck(key)
-	if !ok {
-		t.Fatal("no growth check for firearms_handgun")
-	}
-	if gc.Cap() != 50 {
-		t.Fatalf("cap = %d, want 50", gc.Cap())
+	for _, q := range []string{"射击（手枪）", "驾驶（特殊）"} {
+		key, ok := b.GrowthKey(q)
+		if !ok {
+			t.Fatalf("growth key for %q missing", q)
+		}
+		gc, ok := b.GrowthCheck(key)
+		if !ok {
+			t.Fatalf("no growth check for %q", q)
+		}
+		if gc.Cap() != 99 {
+			t.Fatalf("%s cap = %d, want the default 99", q, gc.Cap())
+		}
 	}
 }
 
 // The comparison target can be overridden by the caller.
 func TestGrowthExplicitTarget(t *testing.T) {
-	// 1d100 -> 88 <= 90 (but > the sheet value 60), gain 1d10 -> 3.
-	b := scriptedBook(t, 87, 2)
+	// 1d100 -> 95 > explicit target 90 (though > the sheet value 60 too),
+	// gain 1d10 -> 3.
+	b := scriptedBook(t, 94, 2)
 	gc, _ := b.GrowthCheck("skill:psychology")
 	target := 90
-	// 1d100 -> 88 <= 90 (but > the sheet value 60)
 	res, err := b.RunGrowth(context.Background(), gc, engine.GrowthInput{
 		Key:    "skill:psychology",
 		Name:   "心理学",
@@ -135,19 +136,19 @@ func TestGrowthConfigValidation(t *testing.T) {
 		repl   string
 	}{
 		{
-			name:   "unknown key",
-			marker: `    - { key: firearms_handgun, gain: "1d10", cap: 50 }`,
-			repl:   `    - { key: nope, gain: "1d10", cap: 50 }`,
+			name:   "empty condition",
+			marker: `    condition: "roll > target"`,
+			repl:   `    condition: ""`,
 		},
 		{
 			name:   "invalid gain",
-			marker: `    - { key: pilot, gain: "1d10", cap: 75 }`,
-			repl:   `    - { key: pilot, gain: "1d", cap: 75 }`,
+			marker: `    gain: "1d10"`,
+			repl:   `    gain: "1d"`,
 		},
 		{
 			name:   "invalid condition",
-			marker: `    condition: "roll <= target"`,
-			repl:   `    condition: "roll <= nope"`,
+			marker: `    condition: "roll > target"`,
+			repl:   `    condition: "roll > nope"`,
 		},
 	}
 	for _, tc := range cases {

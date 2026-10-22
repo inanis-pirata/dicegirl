@@ -322,7 +322,7 @@ en [选项] <技能/属性名> [目标值 | 成长量] [原因...]
 ```
 
 - 第二个位置 token：纯整数 = 显式成长目标值；含 `d`/`D`/`/` 的 token = 自定义成长量骰子表达式（如 `en 幸运 1d10`）；省略则用卡面现值。
-- 成长成功直接写卡。
+- CoC 7e 语义：掷 1d100，结果**高于**当前技能/属性值才成长（技能越高越难提升），成长量 1d10、上限 99；成长成功直接写卡。
 - 选项：`--system`、`--character`。
 
 ### 5.5 `dmg` — 伤害掷骰
@@ -897,11 +897,11 @@ tables:
 ```yaml
 growth_checks:
   default:
-    condition: "roll <= target"
+    condition: "roll > target"   # CoC 7e：掷值高于现值才成长
     gain: "1d10"
     cap: 99
   overrides:
-    - { key: firearms_handgun, gain: "1d10", cap: 50 }
+    - { key: dodge, gain: "1d6", cap: 99 }
 ```
 
 - `condition` 是布尔公式，只可见 `roll`（1d100 的结果）与 `target`（比较目标，默认是当前技能值）。

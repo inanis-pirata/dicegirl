@@ -117,8 +117,9 @@ func TestGrowthCustomAmount(t *testing.T) {
 	root := t.TempDir()
 	createInvestigator(t, root, "调查员甲", "psychology=60")
 
-	// The custom amount is rolled and added to the skill.
-	code, out, errs := runCLISeed(t, root, 1, "en", "心理学", "1d10", "测试")
+	// The custom amount is rolled and added to the skill (seed 2 rolls
+	// 66 > 60, so the growth condition holds).
+	code, out, errs := runCLISeed(t, root, 2, "en", "心理学", "1d10", "测试")
 	if code != 0 {
 		t.Fatalf("en code=%d err=%s", code, errs)
 	}
@@ -147,8 +148,9 @@ func TestGrowthCheck(t *testing.T) {
 	root := t.TempDir()
 	createInvestigator(t, root, "调查员甲")
 
-	// Seed 1 rolls 53 on the growth d100: 53 <= 60, so the skill grows.
-	code, out, errs := runCLISeed(t, root, 1, "en", "心理学")
+	// 7e: the skill grows only when the d100 is ABOVE its current value.
+	// Seed 3 rolls 100 > 60, gain +2.
+	code, out, errs := runCLISeed(t, root, 3, "en", "心理学")
 	if code != 0 {
 		t.Fatalf("en code=%d err=%s", code, errs)
 	}
@@ -156,26 +158,27 @@ func TestGrowthCheck(t *testing.T) {
 		t.Fatalf("en output: %q", out)
 	}
 	code, out, errs = runCLI(t, root, "st", "show", "心理学")
-	if code != 0 || !strings.Contains(out, "psychology 61") {
+	if code != 0 || !strings.Contains(out, "psychology 62") {
 		t.Fatalf("growth was not written to the sheet: %q", out)
 	}
 
-	// A failed growth leaves the sheet untouched.
-	code, out, errs = runCLISeed(t, root, 3, "en", "心理学")
+	// Seed 1 rolls 53, which is not above 62: the sheet stays untouched.
+	code, out, errs = runCLISeed(t, root, 1, "en", "心理学")
 	if code != 0 || !strings.Contains(out, "未成长") {
 		t.Fatalf("en code=%d out=%q err=%s", code, out, errs)
 	}
 	code, out, errs = runCLI(t, root, "st", "show", "心理学")
-	if code != 0 || !strings.Contains(out, "psychology 61") {
+	if code != 0 || !strings.Contains(out, "psychology 62") {
 		t.Fatalf("failed growth changed the sheet: %q", out)
 	}
 
-	// The structured contract reports before/after/gain.
-	code, out, errs = runCLISeed(t, root, 4, "--json", "en", "心理学")
+	// The structured contract reports before/after/gain (seed 5 rolls
+	// 77 > 62).
+	code, out, errs = runCLISeed(t, root, 5, "--json", "en", "心理学")
 	if code != 0 {
 		t.Fatalf("json en code=%d err=%s", code, errs)
 	}
-	for _, want := range []string{`"kind":"growth_check"`, `"before":61`, `"grew":true`, `"gain":`} {
+	for _, want := range []string{`"kind":"growth_check"`, `"before":62`, `"grew":true`, `"gain":`} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("json growth missing %q: %q", want, out)
 		}
@@ -198,18 +201,19 @@ func TestGrowthCapAndAttributes(t *testing.T) {
 	root := t.TempDir()
 	createInvestigator(t, root, "调查员甲", "psychology=95")
 
-	// Seed 1 rolls 53: growth +1, but the cap is 99.
-	code, out, errs := runCLISeed(t, root, 1, "en", "心理学")
-	if code != 0 || !strings.Contains(out, "95 → 96") {
+	// Seed 3 rolls 100 > 95, gain +2: 95 -> 97.
+	code, out, errs := runCLISeed(t, root, 3, "en", "心理学")
+	if code != 0 || !strings.Contains(out, "95 → 97") {
 		t.Fatalf("growth code=%d out=%q err=%s", code, out, errs)
 	}
 
-	// A skill near the cap stops there.
+	// A skill at the cap stops there even when the condition holds (seed 3
+	// rolls 100 > 99, but the gain is clamped away).
 	code, _, errs = runCLI(t, root, "st", "心理学=99")
 	if code != 0 {
 		t.Fatalf("st set code=%d err=%s", code, errs)
 	}
-	code, out, errs = runCLISeed(t, root, 1, "en", "心理学")
+	code, out, errs = runCLISeed(t, root, 3, "en", "心理学")
 	if code != 0 || !strings.Contains(out, "未成长") || !strings.Contains(out, "上限 99") {
 		t.Fatalf("capped growth code=%d out=%q err=%s", code, out, errs)
 	}
