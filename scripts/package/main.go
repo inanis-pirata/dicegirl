@@ -251,6 +251,8 @@ cat > "$UNIT" <<'UNIT_EOF'
 Description=dicegirl QQ bot
 After=network-online.target
 Wants=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
 
 [Service]
 Type=simple
@@ -260,6 +262,7 @@ WorkingDirectory=/opt/dicegirl
 EnvironmentFile=/etc/dicegirl/bot.env
 Environment=DICEGIRL_DATA_ROOT=/var/lib/dicegirl/data
 Environment=DICEGIRL_BOT_DATA_ROOT=/var/lib/dicegirl/botdata
+Environment=GOTRACEBACK=all
 ExecStart=/opt/dicegirl/qqbot
 Restart=always
 RestartSec=5

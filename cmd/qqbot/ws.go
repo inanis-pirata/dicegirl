@@ -74,6 +74,16 @@ func (g *gateway) run(ctx context.Context) error {
 		if err := ctx.Err(); err != nil {
 			return nil
 		}
+		g.logger.Print("获取 access_token…")
+		if _, err := g.api.accessToken(ctx); err != nil {
+			g.logger.Printf("获取 access_token 失败：%v", err)
+			if !sleep(ctx, backoff) {
+				return nil
+			}
+			backoff = nextBackoff(backoff)
+			continue
+		}
+		g.logger.Print("access_token 获取成功，查询 gateway 地址…")
 		url, err := g.api.GatewayURL(ctx)
 		if err != nil {
 			g.logger.Printf("获取 gateway 失败：%v", err)
