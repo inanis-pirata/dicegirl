@@ -25,7 +25,7 @@ func TestSecondMechanicRulebook(t *testing.T) {
 	}
 
 	// Both books are loaded and listed.
-	code, out, errs := runCLI(t, root, ".sys")
+	code, out, errs := runCLI(t, root, ".rule", "list")
 	if code != 0 {
 		t.Fatalf("systems list code=%d err=%s", code, errs)
 	}

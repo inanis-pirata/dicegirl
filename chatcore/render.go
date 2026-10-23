@@ -1,4 +1,4 @@
-// Package chatcore parses chat-style short commands (Dice!/BCDice conventions)
+// Package chatcore parses chat-style commands (Dice!/BCDice conventions)
 // results as human-readable text. It contains no rule logic: every operation
 // is a thin call into internal/app, and every result type comes from the
 // generic engine interpreting a rulebook.
@@ -319,15 +319,19 @@ func (r *Renderer) Draw(res *app.DrawResult) error {
 	})
 }
 
-// Session renders one game table and the per-table state it owns. (The
-// random-table renderer keeps the Table name.)
+// Session renders one game and the per-game state it owns. (The random-table
+// renderer keeps the Table name.)
 func (r *Renderer) Session(view *app.TableView) error {
 	return r.render(view, func() string {
 		marker := ""
 		if view.Active {
 			marker = "（当前）"
 		}
-		line := fmt.Sprintf("桌「%s」%s %s", view.Name, marker, view.ID)
+		status := "进行中"
+		if !view.Open {
+			status = "已关闭"
+		}
+		line := fmt.Sprintf("游戏「%s」%s %s，%s", view.Name, marker, view.ID, status)
 		if view.SystemID != "" {
 			line += "，规则书 " + view.SystemID
 		}
@@ -335,15 +339,55 @@ func (r *Renderer) Session(view *app.TableView) error {
 		if len(view.Decks) > 0 {
 			line += "；牌堆：" + strings.Join(view.Decks, "、")
 		}
-		return line
+
+		var b strings.Builder
+		b.WriteString(line)
+		b.WriteString("\n")
+		b.WriteString("GM：" + memberNames(view.GMs))
+		b.WriteString("\n")
+		b.WriteString("玩家：" + memberNames(view.Players))
+		if len(view.Vars) > 0 {
+			keys := make([]string, 0, len(view.Vars))
+			for k := range view.Vars {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			parts := make([]string, 0, len(keys))
+			for _, k := range keys {
+				parts = append(parts, k+"="+view.Vars[k])
+			}
+			b.WriteString("\n团变量：" + strings.Join(parts, "，"))
+		}
+		if view.Roulette != nil {
+			b.WriteString(fmt.Sprintf("\n轮盘：d%d ×%d，袋中 %d 枚，已抽 %d 次",
+				view.Roulette.Sides, view.Roulette.Copies,
+				len(view.Roulette.Remaining), len(view.Roulette.Drawn)))
+		}
+		return b.String()
 	})
 }
 
-// SessionList renders every game table, marking the active one.
+// memberNames renders a roster for the game view.
+func memberNames(list []app.GameMember) string {
+	if len(list) == 0 {
+		return "（无）"
+	}
+	names := make([]string, 0, len(list))
+	for _, m := range list {
+		name := m.Name
+		if name == "" {
+			name = m.ID
+		}
+		names = append(names, name)
+	}
+	return strings.Join(names, "、")
+}
+
+// SessionList renders every game, marking the active one.
 func (r *Renderer) SessionList(list *app.TableList) error {
 	return r.render(list, func() string {
 		if len(list.Tables) == 0 {
-			return "（还没有桌）"
+			return "（还没有游戏；用 game new <名字> 创建）"
 		}
 		lines := make([]string, 0, len(list.Tables))
 		for _, t := range list.Tables {
@@ -429,7 +473,7 @@ func (r *Renderer) Rules(res *app.RulesResult) error {
 			}
 		}
 		if len(res.Matches) > 1 {
-			b.WriteString("\n（多条命中，可用 rules set <系统> 固定偏好，或直接引用 词条 id）")
+			b.WriteString("\n（多条命中，可用 rule ref set <系统> 固定偏好，或直接引用 词条 id）")
 		}
 		return strings.TrimRight(b.String(), "\n")
 	})
@@ -713,6 +757,96 @@ func (r *Renderer) SimpleMessage(msg string) error {
 	}
 	fmt.Fprintln(r.Out, msg)
 	return nil
+}
+
+// logStatusLabel renders a log status for chat output.
+func logStatusLabel(status string) string {
+	switch status {
+	case storage.LogStatusActive:
+		return "记录中"
+	case storage.LogStatusPaused:
+		return "已暂停"
+	case storage.LogStatusEnded:
+		return "已结束"
+	case storage.LogStatusHalted:
+		return "已中止"
+	default:
+		return status
+	}
+}
+
+// logStatusText renders `log` / `log time` status.
+func logStatusText(view *app.LogStatusView) string {
+	var b strings.Builder
+	switch {
+	case view.Current != nil:
+		c := view.Current
+		if c.Status == storage.LogStatusActive {
+			fmt.Fprintf(&b, "跑团记录《%s》记录中：%d 条，开始于 %s，已计时 %s",
+				c.Name, c.Entries, c.CreatedAt.Local().Format("2006-01-02 15:04"), c.Duration)
+		} else {
+			fmt.Fprintf(&b, "跑团记录《%s》已暂停：%d 条，累计 %s（log on 继续，log end 结束）",
+				c.Name, c.Entries, c.Duration)
+		}
+	case view.Recent != nil:
+		r := view.Recent
+		fmt.Fprintf(&b, "当前没有进行中的跑团记录；最近一份《%s》%s（%d 条）",
+			r.Name, logStatusLabel(r.Status), r.Entries)
+	default:
+		b.WriteString("还没有跑团记录（log new [名称] 开始）")
+	}
+	fmt.Fprintf(&b, "\n导出格式：%s｜跑团计时：%s", view.Format, onOffText(view.Timer))
+	return b.String()
+}
+
+// onOffText renders a boolean switch.
+func onOffText(on bool) string {
+	if on {
+		return "开启"
+	}
+	return "关闭"
+}
+
+// logListText renders one page of `log list`.
+func logListText(list *app.LogList) string {
+	if list.Total == 0 {
+		return "还没有跑团记录（log new [名称] 开始）"
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "本群跑团记录（第 %d/%d 页，共 %d 份）：", list.Page, list.Pages, list.Total)
+	start := (list.Page - 1) * app.LogPageSize
+	for i, l := range list.Logs {
+		fmt.Fprintf(&b, "\n%2d. %s\t%s\t%d 条\t%s",
+			start+i+1, l.Name, logStatusLabel(l.Status), l.Entries,
+			l.CreatedAt.Local().Format("2006-01-02 15:04"))
+	}
+	return b.String()
+}
+
+// logStatText renders `log stat`.
+func logStatText(stat *app.LogStat) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "《%s》跑团记录统计\n", stat.Log.Name)
+	fmt.Fprintf(&b, "状态：%s｜条目：%d｜计时：%s",
+		logStatusLabel(stat.Log.Status), stat.Log.Entries, stat.Log.Duration)
+	fmt.Fprintf(&b, "\n参与者：%d 人", len(stat.Participants))
+	for _, p := range stat.Participants {
+		fmt.Fprintf(&b, "\n  %s\t%d 条", p.Name, p.Count)
+	}
+	if !stat.FirstAt.IsZero() || !stat.LastAt.IsZero() {
+		b.WriteString("\n时段：")
+		if !stat.FirstAt.IsZero() {
+			b.WriteString(stat.FirstAt.Local().Format("2006-01-02 15:04"))
+		}
+		b.WriteString(" ~ ")
+		if !stat.LastAt.IsZero() {
+			b.WriteString(stat.LastAt.Local().Format("2006-01-02 15:04"))
+		}
+	}
+	if stat.TopSpeaker != "" {
+		fmt.Fprintf(&b, "\n发言最多：%s（%d 条）", stat.TopSpeaker, stat.TopCount)
+	}
+	return b.String()
 }
 
 // Check renders a rulebook-driven check.

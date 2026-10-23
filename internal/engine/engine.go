@@ -180,6 +180,10 @@ func (b *Book) Manifest() rules.Manifest { return b.manifest }
 // user path), for error messages.
 func (b *Book) Source() string { return b.source }
 
+// Raw returns the source bytes the book was compiled from, so a first edit
+// of a built-in book can copy them into a writable override file.
+func (b *Book) Raw() []byte { return b.rawBytes }
+
 // Roller returns the injected dice roller.
 func (b *Book) Roller() Roller { return b.roller }
 

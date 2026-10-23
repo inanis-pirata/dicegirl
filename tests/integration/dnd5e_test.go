@@ -12,7 +12,7 @@ func TestDnD5eRulebook(t *testing.T) {
 	root := t.TempDir()
 
 	// Both built-in books are loaded and listed.
-	code, out, errs := runCLI(t, root, ".sys")
+	code, out, errs := runCLI(t, root, ".rule", "list")
 	if code != 0 {
 		t.Fatalf("systems list code=%d err=%s", code, errs)
 	}
@@ -32,7 +32,7 @@ func TestDnD5eRulebook(t *testing.T) {
 
 	// Ability modifiers use floor division, and the derived values include
 	// initiative, passive perception, unarmored AC and hit points.
-	code, out, errs = runCLI(t, root, ".dv")
+	code, out, errs = runCLI(t, root, ".st", "derived")
 	if code != 0 {
 		t.Fatalf("derived code=%d err=%s", code, errs)
 	}
@@ -115,16 +115,16 @@ func TestDnD5eRulebook(t *testing.T) {
 	}
 
 	// The quick reference is searchable by keyword.
-	code, out, errs = runCLI(t, root, ".rules", "优势")
+	code, out, errs = runCLI(t, root, ".rule", "ref", "优势")
 	if code != 0 || !strings.Contains(out, "优势与劣势") {
-		t.Fatalf("rules search code=%d out=%q err=%s", code, out, errs)
+		t.Fatalf("rule ref search code=%d out=%q err=%s", code, out, errs)
 	}
 }
 
-// D&D is played through the chat-style short commands: `.dnd`/`.dndd`
+// D&D is played through the chat-style commands: `.dnd`/`.dndd`
 // generate cards, `.ra` rolls checks with the active card's system, and
-// `.rules` searches the book.
-func TestDnD5eShortCommands(t *testing.T) {
+// `rule ref` searches the book.
+func TestDnD5eCommands(t *testing.T) {
 	root := t.TempDir()
 
 	// `.dnd` generates one dnd5e character card and makes it active.

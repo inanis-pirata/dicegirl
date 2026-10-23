@@ -10,9 +10,9 @@ import (
 	"dicegirl/internal/rules"
 )
 
-// The quick-reference dictionary (the Dice! `.rules`): every rulebook may
+// The quick-reference dictionary (Dice!'s rules lookup): every rulebook may
 // declare entries, and the search spans the loaded rulebooks. The preferred
-// rulebook (set with `rules set <系统>`) ranks first.
+// rulebook (set with `rule ref set <系统>`) ranks first.
 
 // RuleMatch is one matched quick-reference entry.
 type RuleMatch struct {

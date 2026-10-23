@@ -8,7 +8,7 @@ import (
 	"dicegirl/internal/engine"
 )
 
-func TestShortToken(t *testing.T) {
+func TestStripCommandPrefix(t *testing.T) {
 	cases := map[string]struct {
 		name     string
 		prefixed bool
@@ -22,9 +22,9 @@ func TestShortToken(t *testing.T) {
 		".":    {".", false}, // a lone punctuation is not an alias prefix
 	}
 	for in, want := range cases {
-		name, prefixed := shortToken(in)
+		name, prefixed := stripCommandPrefix(in)
 		if name != want.name || prefixed != want.prefixed {
-			t.Errorf("shortToken(%q) = %q,%v want %q,%v", in, name, prefixed, want.name, want.prefixed)
+			t.Errorf("stripCommandPrefix(%q) = %q,%v want %q,%v", in, name, prefixed, want.name, want.prefixed)
 		}
 	}
 }
@@ -39,6 +39,10 @@ func TestSplitCommandToken(t *testing.T) {
 		{".r3d6", nil, "r", "3d6", true, true},
 		{"r1d10", nil, "r", "1d10", false, true},
 		{".ra心理学+2", nil, "ra", "心理学+2", true, true},
+		{".rah心理学", nil, "rah", "心理学", true, true},
+		{".rch心理学", nil, "rch", "心理学", true, true},
+		{".h3d6", nil, "h", "3d6", true, true},
+		{".rp2", nil, "rp", "2", true, true},
 		{"ra60", nil, "ra", "60", false, true},
 		{".drawh命运", nil, "drawh", "命运", true, true},
 		{".draw命运", nil, "draw", "命运", true, true},
@@ -299,20 +303,26 @@ func TestNormalizeInitiativeExpr(t *testing.T) {
 	}
 }
 
-func TestIsShortCommand(t *testing.T) {
+func TestIsCommandName(t *testing.T) {
 	for _, name := range []string{
-		"r", "rs", "ra", "rc", "sc", "st", "pc", "set", "ti", "li", "ak", "name", "en", "rh",
+		"r", "rs", "rd", "ra", "rah", "rb", "rc", "rch", "rp", "sc", "st", "pc", "set", "ti", "li", "ak", "name", "en", "h", "rh",
 		"w", "ww", "ri", "init", "deck", "draw", "drawh",
-		"rules", "sys", "dv", "dmg", "opp", "tb",
+		"rav", "tb", "rule", "game",
 	} {
-		if !isShortCommand(name) {
-			t.Errorf("%s must be a short command", name)
+		if !isCommandName(name) {
+			t.Errorf("%s must be a command", name)
+		}
+	}
+	// Old dicegirl-only names are gone; the Dice!Next spelling is canonical.
+	for _, name := range []string{"rules", "sys", "dv", "dmg", "opp", "gm"} {
+		if isCommandName(name) {
+			t.Errorf("%s must no longer be a command", name)
 		}
 	}
 	// The generation aliases come from the rulebooks, not from this table.
 	for _, name := range []string{"roll", "check", "resource", "growth", "choice", "coc", "dnd", ""} {
-		if isShortCommand(name) {
-			t.Errorf("%s must not be a static short command", name)
+		if isCommandName(name) {
+			t.Errorf("%s must not be a static command", name)
 		}
 	}
 }

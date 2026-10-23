@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// A rulebook declares its own short command alias, so a new game needs no
+// A rulebook declares its own command alias, so a new game needs no
 // Go change: the user book below answers to ".mini".
 func TestRulebookDeclaredAlias(t *testing.T) {
 	root := t.TempDir()
@@ -20,7 +20,7 @@ id: "mini"
 name: "Mini Game"
 system_version: "0.1.0"
 rules_version: "test"
-description: "user book with its own short command"
+description: "user book with its own command"
 commands: ["mini"]
 attributes:
   - { id: "STR", name: "力量" }

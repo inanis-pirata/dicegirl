@@ -413,7 +413,7 @@ INSERT INTO state (key, value) VALUES ('active_character_id', 'c-old1');
 		`SELECT name, system_id FROM tables WHERE id = 'default'`).Scan(&defaultName, &systemID); err != nil {
 		t.Fatalf("seed table: %v", err)
 	}
-	if defaultName != "默认桌" {
+	if defaultName != "默认游戏" {
 		t.Fatalf("seed name = %q", defaultName)
 	}
 

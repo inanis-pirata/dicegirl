@@ -79,12 +79,12 @@ func TestCharacterAndCheckFlow(t *testing.T) {
 		t.Fatalf("json check code=%d out=%q err=%s", code, out, errs)
 	}
 
-	code, _, errs = runCLI(t, root, ".dmg", "1d8")
+	code, _, errs = runCLI(t, root, ".r", "1d8+db")
 	if code != 0 {
 		t.Fatalf("damage code=%d stderr=%s", code, errs)
 	}
 
-	code, out, errs = runCLI(t, root, ".dv", "--init")
+	code, out, errs = runCLI(t, root, ".st", "derived", "--init")
 	if code != 0 {
 		t.Fatalf("derived code=%d stderr=%s", code, errs)
 	}
@@ -181,15 +181,15 @@ func TestRollStatementFlow(t *testing.T) {
 
 func TestSystemsAndConfig(t *testing.T) {
 	root := t.TempDir()
-	code, out, errs := runCLI(t, root, ".sys")
+	code, out, errs := runCLI(t, root, ".rule", "list")
 	if code != 0 || !strings.Contains(out, "coc7") {
 		t.Fatalf("systems code=%d out=%q err=%s", code, out, errs)
 	}
-	code, _, errs = runCLI(t, root, ".sys", "validate", "--system", "coc7")
+	code, _, errs = runCLI(t, root, ".rule", "validate", "--system", "coc7")
 	if code != 0 {
 		t.Fatalf("config validate code=%d stderr=%s", code, errs)
 	}
-	code, _, errs = runCLI(t, root, ".sys", "validate", "--system", "nope")
+	code, _, errs = runCLI(t, root, ".rule", "validate", "--system", "nope")
 	if code != 1 || !strings.Contains(errs, "RULE_NOT_FOUND") {
 		t.Fatalf("missing system code=%d stderr=%q", code, errs)
 	}
@@ -205,7 +205,7 @@ func TestCharacterNotFound(t *testing.T) {
 
 func TestUnknownCommand(t *testing.T) {
 	root := t.TempDir()
-	// The former long commands are gone: only short commands remain.
+	// The former long commands are gone: only commands remain.
 	for _, cmd := range []string{"frobnicate", "roll", "character", "systems", "check"} {
 		if code, _, _ := runCLI(t, root, cmd); code != 2 {
 			t.Fatalf("%s: code=%d, want 2", cmd, code)

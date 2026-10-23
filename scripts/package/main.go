@@ -465,9 +465,10 @@ Linux 服务器安装（systemd）
 
 说明
   - 机器人凭据只从环境变量或 bot.env 读取；不要把 bot.env 分享给别人。
-  - 首次使用暗骰（.rh）或围观（.ob）需要在群里按提示，私聊机器人发送绑定码。
+  - 首次使用暗骰（.h/.rh）或围观（.ob）需要在群里按提示，私聊机器人发送绑定码。
   - 日志：systemd 安装时由 journald 保存（journalctl -u dicegirl）；
     也可在配置里设 DICEGIRL_BOT_LOG_FILE=/var/log/dicegirl/bot.log 额外写文件。
-  - 战报文件在 <botdata>/groups/<群>/logs/ 下。
+  - 跑团记录存在每个群自己的 SQLite 里；导出的 txt/html 在
+    <botdata>/groups/<群>/logs/ 下（旧版 *.md 战报首次使用时会自动导入并保留）。
 `, ver, goos, goarch, exe, exe, run, run, run)
 }

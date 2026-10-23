@@ -411,7 +411,7 @@ func (b *Book) compile(raw *rawBook) error {
 		return err
 	}
 
-	// Quick-reference entries (the `.rules` dictionary).
+	// Quick-reference entries (the rules dictionary).
 	if err := b.compileRules(op, raw.Rules); err != nil {
 		return err
 	}

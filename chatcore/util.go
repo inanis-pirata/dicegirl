@@ -97,6 +97,71 @@ func (m *multiFlag) Set(v string) error {
 	return nil
 }
 
+// splitSheetAssignments classifies `.st` tokens. Dice! allows the '=' to be
+// omitted (`st 力量60`) and also accepts name/value pairs (`st 力量 60`).
+// Signed suffixes stay adjustments (`st 力量-1`, `st 理智-1d6`), so the two
+// forms cannot be mixed in one command.
+func splitSheetAssignments(args []string) (sets []string, hasSet, hasAdjust bool) {
+	// Pair form: NAME INTEGER, with no '=' or ':' anywhere.
+	if len(args) >= 2 && len(args)%2 == 0 {
+		paired := make([]string, 0, len(args)/2)
+		ok := true
+		for i := 0; i < len(args); i += 2 {
+			key := strings.TrimSpace(args[i])
+			val := strings.TrimSpace(args[i+1])
+			if key == "" || val == "" || strings.ContainsAny(key, "=:+-*/()") || !isDigits(val) {
+				ok = false
+				break
+			}
+			paired = append(paired, key+"="+val)
+		}
+		if ok {
+			return paired, true, false
+		}
+	}
+
+	for _, raw := range args {
+		tok := strings.TrimSpace(raw)
+		if tok == "" {
+			continue
+		}
+		if strings.ContainsAny(tok, "=:") {
+			sets = append(sets, tok)
+			hasSet = true
+			continue
+		}
+		if key, val, ok := splitGluedAssignment(tok); ok {
+			sets = append(sets, key+"="+val)
+			hasSet = true
+			continue
+		}
+		hasAdjust = true
+	}
+	return sets, hasSet, hasAdjust
+}
+
+// splitGluedAssignment recognizes `KEYVALUE` such as `力量60` or `STR60`.
+// It deliberately rejects signed values, dice notation (`-1d6`) and
+// arithmetic so those keep their adjustment meaning.
+func splitGluedAssignment(tok string) (key, val string, ok bool) {
+	i := len(tok)
+	for i > 0 && tok[i-1] >= '0' && tok[i-1] <= '9' {
+		i--
+	}
+	if i == 0 || i == len(tok) {
+		return "", "", false
+	}
+	prev := tok[i-1]
+	if prev == '+' || prev == '-' || prev == 'd' || prev == 'D' {
+		return "", "", false
+	}
+	key = strings.TrimSpace(tok[:i])
+	if key == "" || strings.ContainsAny(key, "=:+-*/()") {
+		return "", "", false
+	}
+	return key, tok[i:], true
+}
+
 func parseAssignments(pairs []string) ([]app.Assignment, error) {
 	out := make([]app.Assignment, 0, len(pairs))
 	for _, p := range pairs {

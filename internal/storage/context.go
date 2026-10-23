@@ -2,9 +2,9 @@ package storage
 
 import "context"
 
-// Game tables ("桌"/"团") scope the shared state of one play group: a single
+// Games ("游戏"/"团") scope the shared state of one play group: a single
 // group data root can hold several parallel games, each with its own active
-// character pointer, initiative encounter and card decks. The table id rides
+// character pointer, initiative encounter and card decks. The game id rides
 // on the request context, the same way chat adapters pass the sender's bound
 // card: no use-case signature enumerates it.
 

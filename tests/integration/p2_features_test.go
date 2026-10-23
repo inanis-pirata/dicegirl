@@ -10,7 +10,7 @@ import (
 // P2.3: target arithmetic on the check target. The published `+n`/`-n`
 // suffixes stay bonus/penalty dice; `*n` / `/n` rewrite the target and
 // `--mod` shifts it.
-func TestShortRATargetArithmetic(t *testing.T) {
+func TestCommandRATargetArithmetic(t *testing.T) {
 	root := t.TempDir()
 	createInvestigator(t, root, "调查员甲")
 
@@ -77,7 +77,7 @@ func TestShortRATargetArithmetic(t *testing.T) {
 }
 
 // P2.6: rulebook-declared aliases resolve like the canonical names.
-func TestShortAliases(t *testing.T) {
+func TestCommandAliases(t *testing.T) {
 	root := t.TempDir()
 	createInvestigator(t, root, "调查员甲")
 
@@ -99,7 +99,7 @@ func TestShortAliases(t *testing.T) {
 }
 
 // P2.4: the optional current value, the reason text and recovery losses.
-func TestShortResourceExtras(t *testing.T) {
+func TestCommandResourceExtras(t *testing.T) {
 	root := t.TempDir()
 	createInvestigator(t, root, "调查员甲")
 
@@ -142,15 +142,15 @@ func TestShortResourceExtras(t *testing.T) {
 		t.Fatalf("post-recovery sheet: %q", out)
 	}
 
-	// `.rc` exposes the same override.
-	code, out, errs = runCLI(t, root, ".rc", "sanity", "0/1d10", "70")
+	// `.sc` exposes the same override.
+	code, out, errs = runCLI(t, root, ".sc", "0/1d10", "70")
 	if code != 0 || !strings.Contains(out, "目标 70") {
 		t.Fatalf("resource --current code=%d out=%q err=%s", code, out, errs)
 	}
 }
 
 // P2.5: the bare roll, the default die setting and the compact roll.
-func TestShortRollConveniences(t *testing.T) {
+func TestCommandRollConveniences(t *testing.T) {
 	root := t.TempDir()
 
 	// A bare `r` rolls the default die (d100).
@@ -180,11 +180,19 @@ func TestShortRollConveniences(t *testing.T) {
 	for _, args := range [][]string{
 		{"set", "0"},
 		{"set", "1001"},
-		{"set", "abc"},
 	} {
 		if code, _, _ := runCLI(t, root, args...); code != 2 {
 			t.Fatalf("%v: code=%d, want 2", args, code)
 		}
+	}
+	// Dice! also uses `.set list` and `.set <system>`.
+	code, out, errs = runCLI(t, root, "set", "list")
+	if code != 0 || !strings.Contains(out, "coc7") {
+		t.Fatalf("set list code=%d out=%q err=%s", code, out, errs)
+	}
+	code, out, errs = runCLI(t, root, "set", "coc7")
+	if code != 0 || !strings.Contains(out, "coc7") {
+		t.Fatalf("set coc7 code=%d out=%q err=%s", code, out, errs)
 	}
 
 	// `rs` renders the total only; the JSON contract just marks the result
@@ -201,7 +209,7 @@ func TestShortRollConveniences(t *testing.T) {
 
 // A character card may carry its own default die size (metadata), which
 // overrides the user-level setting.
-func TestShortDefaultDieFromCharacterMetadata(t *testing.T) {
+func TestCommandDefaultDieFromCharacterMetadata(t *testing.T) {
 	root := t.TempDir()
 	createInvestigator(t, root, "调查员甲")
 
@@ -241,7 +249,7 @@ func findCharacterFile(t *testing.T, root string) string {
 }
 
 // P2.6: the remaining `st` operations.
-func TestShortSTOperations(t *testing.T) {
+func TestCommandSTOperations(t *testing.T) {
 	root := t.TempDir()
 	createInvestigator(t, root, "调查员甲")
 

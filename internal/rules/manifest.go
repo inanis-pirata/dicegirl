@@ -35,7 +35,7 @@ type Manifest struct {
 	// several declare it, the last one registered wins (user books load
 	// after the built-ins).
 	Default bool `yaml:"default"`
-	// Commands are the short command aliases the book answers to (the
+	// Commands are the command aliases the book answers to (the
 	// character-generation entry point, e.g. "coc" or "dnd"). The alias
 	// lives in the rulebook, so adding a game needs no Go change.
 	Commands []string `yaml:"commands"`
@@ -44,7 +44,7 @@ type Manifest struct {
 var (
 	idPattern      = regexp.MustCompile(`^[a-z0-9]+(?:[._-][a-z0-9]+)*$`)
 	versionPattern = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$`)
-	// aliasPattern is the shape of a rulebook-declared short command
+	// aliasPattern is the shape of a rulebook-declared command
 	// alias: lowercase letters, digits and dashes.
 	aliasPattern = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
 )
@@ -78,11 +78,11 @@ func (m Manifest) Validate() error {
 	for _, alias := range m.Commands {
 		if !aliasPattern.MatchString(alias) {
 			return apperr.New(op, apperr.ValidationError,
-				"short command alias must be lowercase letters, digits and dashes, got "+quote(alias))
+				"command alias must be lowercase letters, digits and dashes, got "+quote(alias))
 		}
 		if seenAlias[alias] {
 			return apperr.New(op, apperr.ValidationError,
-				"duplicate short command alias "+quote(alias)+" in "+m.ID)
+				"duplicate command alias "+quote(alias)+" in "+m.ID)
 		}
 		seenAlias[alias] = true
 	}

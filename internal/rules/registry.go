@@ -45,13 +45,13 @@ func (r *Registry) Register(ctx context.Context, system RuleSystem) error {
 	if _, exists := r.systems[m.ID]; exists {
 		return apperr.New(op, apperr.Conflict, "rule system already registered: "+m.ID)
 	}
-	// A short command alias belongs to exactly one rulebook.
+	// A command alias belongs to exactly one rulebook.
 	for _, alias := range m.Commands {
 		for _, other := range r.systems {
 			for _, taken := range other.Manifest().Commands {
 				if taken == alias {
 					return apperr.New(op, apperr.Conflict,
-						"short command alias already registered: "+alias+" ("+m.ID+" and "+other.Manifest().ID+")")
+						"command alias already registered: "+alias+" ("+m.ID+" and "+other.Manifest().ID+")")
 				}
 			}
 		}
@@ -59,6 +59,54 @@ func (r *Registry) Register(ctx context.Context, system RuleSystem) error {
 	r.systems[m.ID] = system
 	if m.Default {
 		r.defaultID = m.ID
+	}
+	return nil
+}
+
+// Replace hot-swaps the system already registered under system.Manifest().ID.
+// The id must be registered (otherwise a RULE_NOT_FOUND is returned; use
+// Register for a new id). Manifest validation and the system's own config
+// validation run exactly like Register; command aliases are checked against
+// every OTHER book, so re-registering the same id with unchanged aliases is
+// allowed. The default selection is reconciled when the replacement drops
+// `default: true`.
+func (r *Registry) Replace(ctx context.Context, system RuleSystem) error {
+	const op = "rules.Registry.Replace"
+	if system == nil {
+		return apperr.New(op, apperr.InvalidArgument, "cannot replace with nil rule system")
+	}
+	m := system.Manifest()
+	if err := m.Validate(); err != nil {
+		return err
+	}
+	if err := system.ValidateConfig(ctx); err != nil {
+		return apperr.Wrap(op, apperr.ConfigInvalid,
+			"rule system "+m.ID+" has invalid configuration", err)
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, exists := r.systems[m.ID]; !exists {
+		return apperr.New(op, apperr.RuleNotFound, "rule system not registered: "+m.ID)
+	}
+	for _, alias := range m.Commands {
+		for otherID, other := range r.systems {
+			if otherID == m.ID {
+				continue // a replacement may keep its own aliases
+			}
+			for _, taken := range other.Manifest().Commands {
+				if taken == alias {
+					return apperr.New(op, apperr.Conflict,
+						"command alias already registered: "+alias+" ("+m.ID+" and "+otherID+")")
+				}
+			}
+		}
+	}
+	r.systems[m.ID] = system
+	if m.Default {
+		r.defaultID = m.ID
+	} else if r.defaultID == m.ID {
+		r.defaultID = ""
 	}
 	return nil
 }
@@ -102,7 +150,7 @@ func (r *Registry) DefaultID() string {
 	return r.defaultID
 }
 
-// AliasOwner returns the system id that owns the given short command
+// AliasOwner returns the system id that owns the given command
 // alias, or "" when no book claims it.
 func (r *Registry) AliasOwner(alias string) (string, bool) {
 	r.mu.RLock()

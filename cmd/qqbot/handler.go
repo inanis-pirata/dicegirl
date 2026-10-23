@@ -119,17 +119,30 @@ func (h *botHandler) runC2C(ctx context.Context, ev messageEvent, content string
 		return
 	}
 
-	// ".rh" in a private chat is just a private roll: the channel is already
-	// private.
+	// Hidden commands in a private chat are just private rolls/checks: the
+	// channel is already private.
 	if isHiddenCommand(content) {
 		content = h.hiddenLine(ctx, bot.ScopeC2C, target, content)
 	}
-	out, code, ok := h.execute(ctx, bot.ScopeC2C, target, content)
+	var logExport string
+	out, code, ok := h.executeWith(ctx, bot.ScopeC2C, target, content,
+		bot.WithAutoApply(), bot.WithActor(target, "私聊用户", false),
+		bot.WithLogFileHook(func(path string) { logExport = path }))
 	if !ok {
 		h.maybeReplyUnknown(ctx, botScopeC2C, target, ev.ID)
 		return
 	}
-	h.replyChunks(ctx, botScopeC2C, target, ev.ID, out, code, maxPassiveC2C)
+	if logExport == "" {
+		h.replyChunks(ctx, botScopeC2C, target, ev.ID, out, code, maxPassiveC2C)
+		return
+	}
+	next := 1
+	if err := h.sendLogFile(ctx, botScopeC2C, target, ev.ID, logExport, next); err != nil {
+		h.postText(ctx, botScopeC2C, target, ev.ID, next,
+			"日志文件发送失败："+err.Error())
+		next++
+	}
+	h.replyChunksFrom(ctx, botScopeC2C, target, ev.ID, out, code, next, maxPassiveC2C-next+1)
 }
 
 // completeBind finishes a group member's private-channel binding: it links
@@ -184,15 +197,21 @@ func (h *botHandler) runGroup(ctx context.Context, ev messageEvent, content stri
 	fields := strings.Fields(content)
 	name := groupCommandName(content)
 
+	// Ordinary chat is part of a play log. Commands are recorded by the
+	// shared executor; adapter-only commands (ob/bind/pc tag) stay outside
+	// the log grammar just like before.
+	if !isCommandLine(t.App, content) {
+		member := ev.Author.MemberOpenid
+		if err := t.App.LogSay(ctx, member, memberLabel(st, member, h.scopeTableID(ctx, t)), content); err != nil {
+			h.logger.Printf("记录群聊失败 group=%s member=%s：%v", ev.GroupOpenid, member, err)
+		}
+	}
+
 	switch {
 	case isHiddenCommand(content):
 		h.runHiddenInGroup(ctx, t, st, ev, content)
 	case name == "ob":
 		h.runObserver(ctx, t, st, ev, fields[1:], func(text string) {
-			h.postText(ctx, botScopeGroup, ev.GroupOpenid, ev.ID, 1, text)
-		})
-	case name == "log":
-		h.runLog(ctx, t, st, ev, fields[1:], func(text string) {
 			h.postText(ctx, botScopeGroup, ev.GroupOpenid, ev.ID, 1, text)
 		})
 	case name == "pc" && h.isGroupPC(fields):
@@ -223,6 +242,11 @@ func (h *botHandler) groupContext(ctx context.Context, ev messageEvent) (*bot.Te
 		h.postText(ctx, botScopeGroup, groupOpenid, ev.ID, 1, "内部错误：无法读取本群状态")
 		return nil, nil, false
 	}
+	if err := h.migrateLegacyLogs(ctx, t, st); err != nil {
+		// A failed import is retried on the next message; the command
+		// itself still runs so a broken legacy file cannot lock the group.
+		h.logger.Printf("迁移旧版战报失败 group=%s：%v", groupOpenid, err)
+	}
 	return t, st, true
 }
 
@@ -239,15 +263,37 @@ func (h *botHandler) runNormal(ctx context.Context, t *bot.Tenant, st *groupStor
 	member := ev.Author.MemberOpenid
 	tid := h.scopeTableID(ctx, t)
 	h.debugf("群命令分派 group=%s member=%s table=%s line=%q", ev.GroupOpenid, member, tid, content)
-	opts := []bot.RunOption{bot.WithAutoApply()}
+	opts := []bot.RunOption{
+		bot.WithAutoApply(),
+		// QQ group events carry no role flag; the group's own GM roster
+		// is the authority for game affairs, so the adapter labels the
+		// sender as an ordinary member and lets `.game` enforce GM rules.
+		bot.WithActor(member, memberLabel(st, member, tid), false),
+	}
 	if b, ok := st.binding(member, tid); ok {
 		if opt, fresh := h.boundCardOption(ctx, t, st, member, tid, b); fresh {
 			h.debugf("使用绑卡 table=%s card=%s(%s)", tid, b.CardName, b.CardID)
 			opts = append(opts, opt)
 		}
 	} else {
-		h.debugf("该成员在当前桌无绑卡 member=%s table=%s", member, tid)
+		h.debugf("该成员在当前游戏无绑卡 member=%s table=%s", member, tid)
 	}
+	// `.game over` clears the shared game data; the adapter must also drop
+	// the member→card bindings that belong to that game.
+	opts = append(opts, bot.WithGameOverHook(func(tableID string) {
+		err := st.update(func(gs *groupState) error {
+			for memberID, per := range gs.Bindings {
+				delete(per, tableID)
+				if len(per) == 0 {
+					delete(gs.Bindings, memberID)
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			h.logger.Printf("结团清理绑卡失败 table=%s：%v", tableID, err)
+		}
+	}))
 	opts = append(opts, bot.WithCardCreatedHook(func(id, name string) {
 		err := st.update(func(gs *groupState) error {
 			per := gs.Bindings[member]
@@ -262,16 +308,31 @@ func (h *botHandler) runNormal(ctx context.Context, t *bot.Tenant, st *groupStor
 			h.logger.Printf("新卡自动绑卡失败 member=%s table=%s：%v", member, tid, err)
 		}
 	}))
+	// `.log end/get/export` writes a file; capture its path and upload it
+	// after the command releases the tenant lock.
+	var logExport string
+	opts = append(opts, bot.WithLogFileHook(func(path string) { logExport = path }))
 	out, code, recognized := h.executeWith(ctx, bot.ScopeGroup, ev.GroupOpenid, content, opts...)
 	if !recognized {
 		h.maybeReplyUnknown(ctx, botScopeGroup, ev.GroupOpenid, ev.ID)
 		return
 	}
-	appendLogEntry(st, t.Root, memberLabel(st, member, tid), content, out)
-	h.replyChunks(ctx, botScopeGroup, ev.GroupOpenid, ev.ID, out, code, maxPassiveGroup)
+	if logExport == "" {
+		h.replyChunks(ctx, botScopeGroup, ev.GroupOpenid, ev.ID, out, code, maxPassiveGroup)
+		return
+	}
+	// Send the file first (seq 1) and the acknowledgement after it, so a
+	// multi-chunk text reply cannot collide with the file's sequence number.
+	next := 1
+	if err := h.sendLogFile(ctx, botScopeGroup, ev.GroupOpenid, ev.ID, logExport, next); err != nil {
+		h.postText(ctx, botScopeGroup, ev.GroupOpenid, ev.ID, next,
+			"日志文件发送失败："+err.Error())
+		next++
+	}
+	h.replyChunksFrom(ctx, botScopeGroup, ev.GroupOpenid, ev.ID, out, code, next, maxPassiveGroup-next+1)
 }
 
-// runHiddenInGroup executes a .rh/.drawh line in the group scope and
+// runHiddenInGroup executes a .h/.rh/.rah/.rch/.drawh line in the group scope and
 // privately delivers its result to the sender and to observers. Nothing
 // about the result is ever posted in the group; on delivery failure the
 // group only learns that the hidden command failed, not what it was.
@@ -282,7 +343,11 @@ func (h *botHandler) runHiddenInGroup(ctx context.Context, t *bot.Tenant, st *gr
 	line := h.hiddenLine(ctx, bot.ScopeGroup, ev.GroupOpenid, content)
 	member := ev.Author.MemberOpenid
 	tid := h.scopeTableID(ctx, t)
-	opts := []bot.RunOption{bot.WithAutoApply()}
+	opts := []bot.RunOption{
+		bot.WithAutoApply(),
+		bot.WithActor(member, memberLabel(st, member, tid), false),
+		bot.WithLogPrefix("（" + noun + "）"),
+	}
 	if b, ok := st.binding(member, tid); ok {
 		if opt, fresh := h.boundCardOption(ctx, t, st, member, tid, b); fresh {
 			opts = append(opts, opt)
@@ -293,7 +358,6 @@ func (h *botHandler) runHiddenInGroup(ctx context.Context, t *bot.Tenant, st *gr
 		h.postText(ctx, botScopeGroup, ev.GroupOpenid, ev.ID, 1, noun+"：无法识别的指令")
 		return
 	}
-	appendLogEntry(st, t.Root, memberLabel(st, member, tid), "（"+noun+"）"+line, out)
 
 	userOpenid, linked := st.link(member)
 	if !linked {
@@ -361,11 +425,19 @@ func (h *botHandler) maybeReplyUnknown(ctx context.Context, scope, target, msgID
 // replyChunks splits text and posts the pieces as sequential passive
 // replies (msg_seq 1..N).
 func (h *botHandler) replyChunks(ctx context.Context, scope, target, msgID, text string, code, maxParts int) {
+	h.replyChunksFrom(ctx, scope, target, msgID, text, code, 1, maxParts)
+}
+
+// replyChunksFrom is replyChunks with an explicit first msg_seq. Log file
+// replies use it so the file and the text do not reuse the same sequence
+// number.
+func (h *botHandler) replyChunksFrom(ctx context.Context, scope, target, msgID, text string,
+	code, startSeq, maxParts int) {
 	text = strings.TrimRight(text, "\n")
 	if text == "" {
 		text = "（无输出）"
 	}
-	if err := h.sendChunks(ctx, scope, target, msgID, text, maxParts); err != nil {
+	if err := h.sendChunksFrom(ctx, scope, target, msgID, text, startSeq, maxParts); err != nil {
 		h.logger.Printf("回复失败 scope=%s target=%s code=%d：%v", scope, target, code, err)
 		return
 	}
@@ -378,11 +450,17 @@ func (h *botHandler) postText(ctx context.Context, scope, target, msgID string, 
 	}
 }
 
-// sendChunks posts text as few messages as possible: it first tries one
+// sendChunks posts text as few messages as possible (msg_seq starts at 1).
+func (h *botHandler) sendChunks(ctx context.Context, scope, target, msgID, text string, maxParts int) error {
+	return h.sendChunksFrom(ctx, scope, target, msgID, text, 1, maxParts)
+}
+
+// sendChunksFrom posts text with an explicit first msg_seq: it first tries one
 // message and only splits when the platform answers MESSAGE_TOO_LONG, since
 // the real length limit is not documented. msgID empty means a proactive
 // message. Parts beyond maxParts are dropped with a truncation notice.
-func (h *botHandler) sendChunks(ctx context.Context, scope, target, msgID, text string, maxParts int) error {
+func (h *botHandler) sendChunksFrom(ctx context.Context, scope, target, msgID, text string,
+	startSeq, maxParts int) error {
 	chunks := splitText(text, maxMessageRunes)
 	if len(chunks) > maxParts {
 		chunks = chunks[:maxParts]
@@ -390,7 +468,7 @@ func (h *botHandler) sendChunks(ctx context.Context, scope, target, msgID, text 
 			"\n…（输出过长已截断）"
 	}
 
-	seq, sent := 0, 0
+	seq, sent := startSeq-1, 0
 	var send func(part string) error
 	send = func(part string) error {
 		if sent >= maxParts {
@@ -478,13 +556,19 @@ func normalizeCommandLine(line string, extra ...string) string {
 }
 
 // isHiddenCommand reports whether the first token is a hidden-result command
-// ("rh" hidden roll or "drawh" hidden draw) with an optional alias prefix.
+// (".h"/".rh" hidden roll, ".rah"/".rch" hidden checks, or ".drawh" hidden
+// draw) with an optional alias prefix.
 func isHiddenCommand(line string) bool {
 	name, _, _, _ := chatcore.SplitCommandToken(firstField(line))
-	return name == "rh" || name == "drawh"
+	switch name {
+	case "h", "rh", "rah", "rch", "drawh":
+		return true
+	default:
+		return false
+	}
 }
 
-// hiddenKind returns the hidden command name ("rh"/"drawh").
+// hiddenKind returns the hidden command name ("h"/"rh"/"rah"/"rch"/"drawh").
 func hiddenKind(line string) string {
 	name, _, _, _ := chatcore.SplitCommandToken(firstField(line))
 	return name
@@ -504,11 +588,21 @@ func (h *botHandler) hiddenLine(ctx context.Context, kind, id, content string) s
 			return ""
 		}
 		return "draw " + body
-	case "rh":
+	case "h", "rh":
 		if body == "" || h.looksLikeCommand(ctx, kind, id, body) {
 			return body
 		}
 		return "r " + body
+	case "rah":
+		if body == "" || h.looksLikeCommand(ctx, kind, id, body) {
+			return body
+		}
+		return "ra " + body
+	case "rch":
+		if body == "" || h.looksLikeCommand(ctx, kind, id, body) {
+			return body
+		}
+		return "rc " + body
 	}
 	return body
 }
@@ -518,8 +612,8 @@ func (h *botHandler) looksLikeCommand(ctx context.Context, kind, id, line string
 	if len(fields) == 0 {
 		return false
 	}
-	name, prefixed := chatcore.ShortToken(fields[0])
-	if prefixed || chatcore.IsShortCommand(name) {
+	name, prefixed := chatcore.StripCommandPrefix(fields[0])
+	if prefixed || chatcore.IsCommandName(name) {
 		return true
 	}
 	t, err := h.manager.Get(ctx, kind, id)
@@ -533,15 +627,17 @@ func (h *botHandler) looksLikeCommand(ctx context.Context, kind, id, line string
 }
 
 // hiddenParts splits a hidden-command line into its normalized command name
-// ("rh"/"drawh") and the body after the command, keeping any argument glued
-// to the first token (".rh3d6" -> "rh", "3d6").
+// ("h"/"rh"/"rah"/"rch"/"drawh") and the body after the command, keeping any
+// argument glued to the first token (".rh3d6" -> "rh", "3d6").
 func hiddenParts(line string) (name, body string) {
 	fields := strings.Fields(line)
 	if len(fields) == 0 {
 		return "", ""
 	}
 	n, glued, _, _ := chatcore.SplitCommandToken(fields[0])
-	if n != "rh" && n != "drawh" {
+	switch n {
+	case "h", "rh", "rah", "rch", "drawh":
+	default:
 		return "", line
 	}
 	parts := make([]string, 0, len(fields))

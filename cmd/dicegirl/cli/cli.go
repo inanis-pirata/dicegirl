@@ -30,42 +30,50 @@ const usageText = `dicegirl — 本地 TRPG 骰子与规则引擎
 
   掷骰与检定
     r [语句] [原因]                   掷骰；无语句时掷默认骰（默认 d100）
+    rd [面数]                         默认骰；rd6 等价 d6
     rs <语句> [原因]                  精简掷骰（只出总值）
-    ra [难度] [n#] [名称] [目标] [±n]  检定；ra 15+1 优势、ra 15-1 劣势、ra 困难 15
+    ra/rc [难度] [n#] [名称] [目标] [±n]  检定；ra 15+1 优势、ra 15-1 劣势、ra 困难 15
+    rb/rp [数量] <检定参数>            奖励骰 / 惩罚骰
+    rav <A值> <B值> [--system <规则书>]  对抗检定
     en <技能/属性> [目标|成长量] [原因]  成长检定（成长后直接写卡）
-    dmg <表达式> [--character <名字|id>]   伤害（含规则书的伤害加值）
-    opp <A值> <B值> [--system <规则书>]  对抗检定
 
   角色卡
     pc new <名称> [K=V...] [--system <规则书>] [--active]   手工建卡
-    pc list｜pc show [名字|id]｜pc use <名字|id]｜pc active｜pc val [名字|id]
-    pc nn [名字|id] <新名>｜pc copy <名字|id] <新名>｜pc cpy <目标>=<来源>
-    pc del <名字|id]｜pc meta <键> [值]｜pc export [名字|id] [--file <路径>]
+    pc list｜pc show [名字|id]｜pc use <名字|id>｜pc active｜pc val [名字|id]
+    pc nn [名字|id] <新名>｜pc copy <名字|id> <新名>｜pc cpy <目标>=<来源>
+    pc del <名字|id>｜pc meta <键> [值]｜pc export [名字|id] [--file <路径>]
     pc import --file <路径|-> [--keep-id]   从 YAML 导入角色卡
     pc redo [名字|id]｜pc build [名字|id]｜pc stat [名字|id]｜pc clr
     st show｜st show <键>｜st del <键>｜st clr
-    st K=V [K=V...]｜st K±表达式...｜st &名=表达式   查看/修改当前角色
+    st K=V｜st K60｜st K 60｜st K±表达式...｜st &名=表达式   查看/修改当前角色
 
   人物作成（别名由规则书自己声明：coc → CoC 7e，dnd → D&D 5e）
     <别名>[版本][d] [数量]      如 coc6d（6 版购点法）、coc 10、dndd（27 点购点）
 
   资源与规则
-    rc <检定名> <成功损失>/<失败损失> [当前值] [原因] [--apply]
     sc <成功损失>/<失败损失> [当前值] [原因] [--apply]   理智检定
-    sys｜sys validate [--system <规则书>]    规则书列表 / 重新校验全部配置
-    rules <词条>｜rules list｜rules set [系统]   规则速查（也可写 系统:词条）
+    rule list｜rule validate [--system <规则书>]   规则书列表 / 重新校验
+    rule ref <词条>｜rule ref list｜rule ref set [系统]  规则速查
     tb <表 id>｜tb list [--system <规则书>]     规则书声明的随机表
     ti｜li                            临时/总结性疯狂表（CoC）
-    dv [--character <名字|id>] [--init] [--force]   派生数值（调整值/HP/MP/理智轨等）
+    st derived [--character <名字|id>] [--init] [--force]   派生数值（调整值/HP/MP/理智轨等）
 
   状态与团务
-    set [面数]                        设置默认骰面数（省略恢复默认）
+    game｜game list｜game new/use/show/system/del   游戏（团）管理
+    game join/exit｜master｜set 变量 [值]｜call｜kick <QQ|名字>
+    game close/open｜over｜rou <面数>[*份数]｜rou hist/reset/clr
+                                      玩家名单、团变量、开关、结团与轮盘骰
+    log [new <名称>]｜on｜off｜end｜halt 跑团记录状态 / 开始 / 暂停 / 继续 / 结束
+    log list [页]｜stat [名称]｜del <名称>   日志列表 / 统计 / 删除
+    log get|export [名称]｜type txt|html｜timer on|off｜time
+                                      导出日志文件 / 格式 / 跑团计时
+    set [面数]｜set list｜set <规则书>   默认骰面数 / 规则书列表与切换
     ak new｜add <选项...>｜del <选项>｜get｜show｜clr   随机抉择
     name [cn|jp|en] [数量]            随机姓名
     ri [±加值|表达式] [名称]｜init｜init clr   先攻掷骰 / 查看 / 清空
     deck new/set/show/reset/clr｜draw <牌堆> [数量]   牌堆与抽牌
     w [骰子个数]a[加骰参数]｜ww ...    骰池（只出总数 / 每颗点数）
-    rh ...                            暗骰（需要聊天平台适配器，CLI 不支持）
+    h/rh ...｜rah/rch ...              暗骰/暗骰检定（需要聊天平台适配器，CLI 不支持）
 
 骰子表达式语法：
   NdM、dM、d%；四则运算 + - * / 与括号；保留/丢弃 kh kl dh dl（如 4d6kh3）。

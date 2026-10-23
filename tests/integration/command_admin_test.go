@@ -7,10 +7,10 @@ import (
 	"testing"
 )
 
-// The administrative short commands cover what the removed long commands
+// The administrative commands cover what the removed long commands
 // used to do: card management, export/import, derived/damage/opposed/table
 // helpers and rulebook validation.
-func TestShortAdminCommands(t *testing.T) {
+func TestCommandAdminCommands(t *testing.T) {
 	root := t.TempDir()
 	createInvestigator(t, root, "调查员甲")
 
@@ -26,13 +26,13 @@ func TestShortAdminCommands(t *testing.T) {
 
 	// pc new activates the card and initializes its tracks by default. A
 	// card with incomplete characteristics is still created, with a hint
-	// to finish it with `dv --init`.
+	// to finish it with `st derived --init`.
 	code, out, errs = runCLI(t, root, ".pc", "new", "调查员乙", "STR=30")
 	if code != 0 {
 		t.Fatalf("pc new code=%d err=%s", code, errs)
 	}
 	if !strings.Contains(out, "属性未填全") {
-		t.Fatalf("partial card should hint dv --init: %q", out)
+		t.Fatalf("partial card should hint st derived --init: %q", out)
 	}
 	code, out, _ = runCLI(t, root, ".pc", "active")
 	if strings.TrimSpace(out) == first || !strings.HasPrefix(strings.TrimSpace(out), "c-") {
@@ -121,29 +121,29 @@ func TestShortAdminCommands(t *testing.T) {
 		t.Fatalf("pc use after import code=%d err=%s", code, errs)
 	}
 
-	// Derived values and damage still work through the short commands.
-	if code, out, errs := runCLI(t, root, ".dv"); code != 0 || !strings.Contains(out, "HP") {
-		t.Fatalf("dv code=%d out=%q err=%s", code, out, errs)
+	// Derived values and damage still work through the commands.
+	if code, out, errs := runCLI(t, root, ".st", "derived"); code != 0 || !strings.Contains(out, "HP") {
+		t.Fatalf("st derived code=%d out=%q err=%s", code, out, errs)
 	}
 	// --character accepts the card name too.
-	if code, _, errs := runCLI(t, root, ".dv", "--character", "调查员甲"); code != 0 {
-		t.Fatalf("dv --character name code=%d err=%s", code, errs)
+	if code, _, errs := runCLI(t, root, ".st", "derived", "--character", "调查员甲"); code != 0 {
+		t.Fatalf("st derived --character name code=%d err=%s", code, errs)
 	}
 	if code, _, errs := runCLI(t, root, ".ra", "60", "--character", "调查员甲"); code != 0 {
 		t.Fatalf("ra --character name code=%d err=%s", code, errs)
 	}
-	if code, _, errs := runCLI(t, root, ".dmg", "1d8"); code != 0 {
-		t.Fatalf("dmg code=%d err=%s", code, errs)
+	if code, out, errs := runCLI(t, root, ".r", "1d8+db"); code != 0 || !strings.Contains(out, "1d8+(") {
+		t.Fatalf("damage code=%d out=%q err=%s", code, out, errs)
 	}
 
 	// Opposed checks take two target values.
-	code, out, errs = runCLI(t, root, ".opp", "50", "60")
+	code, out, errs = runCLI(t, root, ".rav", "50", "60")
 	if code != 0 || out == "" {
-		t.Fatalf("opp code=%d out=%q err=%s", code, out, errs)
+		t.Fatalf("rav code=%d out=%q err=%s", code, out, errs)
 	}
 
-	// Rulebook validation is reachable as `sys validate`.
-	if code, _, errs := runCLI(t, root, ".sys", "validate"); code != 0 {
-		t.Fatalf("sys validate code=%d err=%s", code, errs)
+	// Rulebook validation is reachable as `rule validate`.
+	if code, _, errs := runCLI(t, root, ".rule", "validate"); code != 0 {
+		t.Fatalf("rule validate code=%d err=%s", code, errs)
 	}
 }

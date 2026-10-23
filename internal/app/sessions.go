@@ -1,10 +1,10 @@
 package app
 
-// Game tables ("桌"/"团"): a group data root can run several games in
-// parallel. Cards stay shared across tables, but each table owns its default
+// Games ("游戏"/"团"): a group data root can run several games in
+// parallel. Cards stay shared across games, but each game owns its default
 // rulebook, its active-character pointer, one encounter (initiative) and one
 // set of card decks. Chat adapters scope a sender's member bindings to a
-// table; the CLI uses the single implicit default table.
+// game; the CLI uses the single implicit default game.
 
 import (
 	"context"
@@ -18,8 +18,8 @@ import (
 	"dicegirl/internal/storage"
 )
 
-// defaultTableName is the display name of the implicit default table.
-const defaultTableName = "默认桌"
+// defaultTableName is the display name of the implicit default game.
+const defaultTableName = "默认游戏"
 
 // SessionTable is one table's metadata.
 type SessionTable struct {
@@ -30,12 +30,18 @@ type SessionTable struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-// TableView is a table plus its current contents (used by `table` with no
-// subcommand).
+// TableView is a table plus its current contents. It is the read side of the
+// `game` command: the table metadata, decks/initiative, and the game-affairs
+// roster, variables and roulette.
 type TableView struct {
 	SessionTable
-	Decks      []string `json:"decks"`
-	Initiative int      `json:"initiative"`
+	Decks      []string          `json:"decks"`
+	Initiative int               `json:"initiative"`
+	GMs        []GameMember      `json:"gms,omitempty"`
+	Players    []GameMember      `json:"players,omitempty"`
+	Vars       map[string]string `json:"vars,omitempty"`
+	Open       bool              `json:"open"`
+	Roulette   *GameRoulette     `json:"roulette,omitempty"`
 }
 
 // TableList is the collection of tables.
@@ -106,7 +112,7 @@ func (a *App) CreateTable(ctx context.Context, name, systemID string) (*TableVie
 		return nil, apperr.New(op, apperr.InvalidArgument, "table name must not be empty")
 	}
 	if name == defaultTableName {
-		return nil, apperr.New(op, apperr.InvalidArgument, "名字 "+defaultTableName+" 为默认桌保留")
+		return nil, apperr.New(op, apperr.InvalidArgument, "名字 "+defaultTableName+" 为默认游戏保留")
 	}
 	if _, err := a.resolveTableSystem(systemID); err != nil {
 		return nil, err
@@ -117,7 +123,7 @@ func (a *App) CreateTable(ctx context.Context, name, systemID string) (*TableVie
 	}
 	for _, t := range existing {
 		if strings.EqualFold(t.Name, name) {
-			return nil, apperr.New(op, apperr.Conflict, "已存在同名的桌："+name)
+			return nil, apperr.New(op, apperr.Conflict, "已存在同名的游戏："+name)
 		}
 	}
 	id, err := newTableID()
@@ -168,7 +174,7 @@ func (a *App) UseTable(ctx context.Context, ref string) (*TableView, error) {
 	const op = "app.UseTable"
 	t, err := a.resolveTable(ctx, ref)
 	if err != nil {
-		return nil, apperr.Wrap(op, apperr.CodeOf(err), "无法切换桌", err)
+		return nil, apperr.Wrap(op, apperr.CodeOf(err), "无法切换游戏", err)
 	}
 	if err := a.state.SetActiveTable(ctx, t.ID); err != nil {
 		return nil, err
@@ -217,6 +223,38 @@ func (a *App) SetCurrentTableSystem(ctx context.Context, systemID string) (*Tabl
 	return a.tableView(ctx, t)
 }
 
+// GameView returns one game by id or display name; an empty ref returns the
+// current game. It is the read side of the `game show` command.
+func (a *App) GameView(ctx context.Context, ref string) (*TableView, error) {
+	if strings.TrimSpace(ref) == "" {
+		return a.CurrentTableView(ctx)
+	}
+	const op = "app.GameView"
+	t, err := a.resolveTable(ctx, ref)
+	if err != nil {
+		return nil, apperr.Wrap(op, apperr.CodeOf(err), "找不到游戏", err)
+	}
+	return a.tableView(ctx, t)
+}
+
+// Game aliases keep the public vocabulary aligned with the `game` command
+// while the persisted type names stay GameTable/table.
+func (a *App) CreateGame(ctx context.Context, name, systemID string) (*TableView, error) {
+	return a.CreateTable(ctx, name, systemID)
+}
+func (a *App) UseGame(ctx context.Context, ref string) (*TableView, error) {
+	return a.UseTable(ctx, ref)
+}
+func (a *App) ListGames(ctx context.Context) (*TableList, error) {
+	return a.ListGameTables(ctx)
+}
+func (a *App) DeleteGame(ctx context.Context, ref string) error {
+	return a.DeleteTable(ctx, ref)
+}
+func (a *App) SetGameSystem(ctx context.Context, systemID string) (*TableView, error) {
+	return a.SetCurrentTableSystem(ctx, systemID)
+}
+
 // DeleteTable removes a table other than the current one together with its
 // decks and encounter. Member bindings held by an adapter are pruned
 // separately by that adapter.
@@ -224,7 +262,7 @@ func (a *App) DeleteTable(ctx context.Context, ref string) error {
 	const op = "app.DeleteTable"
 	t, err := a.resolveTable(ctx, ref)
 	if err != nil {
-		return apperr.Wrap(op, apperr.CodeOf(err), "无法删除桌", err)
+		return apperr.Wrap(op, apperr.CodeOf(err), "无法删除游戏", err)
 	}
 	active, err := a.ActiveTableID(ctx)
 	if err != nil {
@@ -232,13 +270,16 @@ func (a *App) DeleteTable(ctx context.Context, ref string) error {
 	}
 	if t.ID == active {
 		return apperr.New(op, apperr.InvalidArgument,
-			"不能删除当前桌：先用 table use <名字> 切换到其他桌")
+			"不能删除当前游戏：先用 game use <名字> 切换到其他游戏")
 	}
 	tctx := storage.WithTable(ctx, t.ID)
 	if err := a.encounter.SetInitiative(tctx, t.ID, nil); err != nil {
 		return err
 	}
 	if err := a.decks.SetDecks(tctx, t.ID, map[string]*storage.Deck{}); err != nil {
+		return err
+	}
+	if err := a.games.DeleteGameMeta(tctx, t.ID); err != nil {
 		return err
 	}
 	return a.tables.DeleteTable(ctx, t.ID)
@@ -250,7 +291,7 @@ func (a *App) resolveTable(ctx context.Context, ref string) (*storage.GameTable,
 	const op = "app.resolveTable"
 	ref = strings.TrimSpace(ref)
 	if ref == "" {
-		return nil, apperr.New(op, apperr.InvalidArgument, "缺少桌名")
+		return nil, apperr.New(op, apperr.InvalidArgument, "缺少游戏名")
 	}
 	rows, err := a.tables.Tables(ctx)
 	if err != nil {
@@ -277,10 +318,10 @@ func (a *App) resolveTable(ctx context.Context, ref string) (*storage.GameTable,
 		case 1:
 			return matches[0], nil
 		default:
-			return nil, apperr.New(op, apperr.InvalidArgument, "桌名 "+ref+" 对应多张桌，请改用 ID")
+			return nil, apperr.New(op, apperr.InvalidArgument, "游戏名 "+ref+" 对应多个游戏，请改用 ID")
 		}
 	}
-	return nil, apperr.New(op, apperr.NotFound, "找不到桌："+ref+"（可用 table list 查看）")
+	return nil, apperr.New(op, apperr.NotFound, "找不到游戏："+ref+"（可用 game list 查看）")
 }
 
 // ActiveTableID returns the active table id, resolving the pointer (and
@@ -324,6 +365,10 @@ func (a *App) tableView(ctx context.Context, t *storage.GameTable) (*TableView, 
 	if err != nil {
 		return nil, err
 	}
+	meta, err := a.games.GameMeta(tctx, t.ID)
+	if err != nil {
+		return nil, err
+	}
 	return &TableView{
 		SessionTable: SessionTable{
 			ID:        t.ID,
@@ -334,6 +379,11 @@ func (a *App) tableView(ctx context.Context, t *storage.GameTable) (*TableView, 
 		},
 		Decks:      names,
 		Initiative: len(entries),
+		GMs:        meta.GMs,
+		Players:    meta.Players,
+		Vars:       meta.Vars,
+		Open:       !meta.Closed,
+		Roulette:   meta.Roulette,
 	}, nil
 }
 

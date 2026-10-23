@@ -105,7 +105,7 @@ tables:
 	if err := os.WriteFile(filepath.Join(dir, "broken.yaml"), []byte(broken), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	code, _, errs := runCLI(t, root, ".sys", "validate")
+	code, _, errs := runCLI(t, root, ".rule", "validate")
 	if code != 1 || !strings.Contains(errs, "CONFIG_INVALID") {
 		t.Fatalf("config validate code=%d err=%q", code, errs)
 	}

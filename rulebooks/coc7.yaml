@@ -21,7 +21,7 @@ description: "CoC 7th Edition ruleset (Chinese labels)"
 # character) use this book. A user book may declare its own default, which
 # then wins because user books load after the built-ins.
 default: true
-# The short command this book answers to (character generation): ".coc",
+# The command this book answers to (character generation): ".coc",
 # ".coc6d" (variant 6, detailed), ".coc 10" (ten at once).
 commands: ["coc"]
 
@@ -238,7 +238,7 @@ resource_checks:
     range: { min: 0, max: 99 }
     clamp: { min: 0 }
 
-# Quick-reference entries (the `.rules` dictionary). The texts are our own
+# Quick-reference entries (the `rule ref` dictionary). The texts are our own
 # short summaries, not the rulebook wording.
 rules:
   - id: fumble

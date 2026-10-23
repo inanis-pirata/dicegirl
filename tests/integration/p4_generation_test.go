@@ -21,7 +21,7 @@ func TestCharacterGeneration(t *testing.T) {
 	}
 	// The rulebook's character rules finish the card after the rolled
 	// characteristics: the initial HP/MP/SAN tracks are derived and
-	// recorded right away (no manual `dv --init`).
+	// recorded right away (no manual `st derived --init`).
 	if !strings.Contains(out, "HP ") || !strings.Contains(out, "SAN ") {
 		t.Fatalf("coc output missing derived vitals: %q", out)
 	}

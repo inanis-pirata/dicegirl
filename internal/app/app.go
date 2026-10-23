@@ -29,9 +29,11 @@ type App struct {
 	chars     character.Repository
 	state     storage.StateStore
 	tables    storage.TableStore
+	games     storage.GameStore
 	encounter storage.EncounterStore
 	decks     storage.DeckStore
 	stats     storage.StatsStore
+	logs      storage.LogStore
 	packs     []*engine.DataPack
 	closer    io.Closer
 }
@@ -78,9 +80,11 @@ func New(ctx context.Context, cfg *config.Config, opts ...Option) (*App, error) 
 		chars:     store.Cards(),
 		state:     store.State(),
 		tables:    store.Tables(),
+		games:     store.Games(),
 		encounter: store.Encounter(),
 		decks:     store.Decks(),
 		stats:     store.Stats(),
+		logs:      store.Logs(),
 		closer:    store,
 	}
 	for _, o := range opts {

@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-// The quick reference (the Dice! `.rules` dictionary) has two sources:
+// The quick reference (Dice!'s rules dictionary) has two sources:
 //
 //  1. the rulebook's structured data — the success levels, the difficulty
 //     modifiers, the damage-bonus table, the point-buy table. Those entries

@@ -118,9 +118,87 @@ func TestGroupStoreMigratesFlatBindings(t *testing.T) {
 	}
 }
 
+func TestLegacyLogMigrationRunsOnce(t *testing.T) {
+	root := t.TempDir()
+	legacy := `{
+  "links": {},
+  "bindings": {},
+  "observers": {},
+  "ob_enabled": false,
+  "log": {"active": true, "title": "旧战报", "file": "logs/20260102-150405.md",
+          "started_at": "2026-01-02T15:04:05+08:00", "entries": 2}
+}`
+	if err := os.WriteFile(filepath.Join(root, "adapter.json"), []byte(legacy), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	st, err := loadGroupStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	calls := 0
+	run := func() error {
+		return st.withLegacyLogMigration(func(log legacyLogState) error {
+			calls++
+			if !log.Active || log.Title != "旧战报" || log.File != "logs/20260102-150405.md" {
+				t.Fatalf("legacy log = %+v", log)
+			}
+			if log.StartedAt.IsZero() {
+				t.Fatal("legacy started_at was not parsed")
+			}
+			return nil
+		})
+	}
+	if err := run(); err != nil {
+		t.Fatal(err)
+	}
+	if err := run(); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 1 {
+		t.Fatalf("migration ran %d times, want once", calls)
+	}
+
+	again, err := loadGroupStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	again.read(func(gs *groupState) {
+		if !gs.LogMigrated {
+			t.Fatal("migration marker not persisted")
+		}
+		if gs.LegacyLog.Title != "旧战报" {
+			t.Fatalf("legacy state lost: %+v", gs.LegacyLog)
+		}
+	})
+
+	// A failed run does not set the marker, so the next message retries.
+	failRoot := t.TempDir()
+	if err := os.WriteFile(filepath.Join(failRoot, "adapter.json"), []byte(legacy), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	failStore, err := loadGroupStore(failRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := failStore.withLegacyLogMigration(func(legacyLogState) error {
+		return os.ErrPermission
+	}); err == nil {
+		t.Fatal("expected migration failure")
+	}
+	failStore.read(func(gs *groupState) {
+		if gs.LogMigrated {
+			t.Fatal("marker set after a failed migration")
+		}
+	})
+}
+
 func TestHiddenCommands(t *testing.T) {
 	cases := map[string]bool{
 		".rh 3d6":     true,
+		".h 3d6":      true,
+		".rah 心理学":    true,
+		".rch心理学":     true,
 		"。rh .ra 心理学": true,
 		"rh":          true,
 		".drawh 命运 2": true,
@@ -169,55 +247,24 @@ func TestIsGroupPCCommand(t *testing.T) {
 	}
 }
 
-func TestAppendLogEntry(t *testing.T) {
-	root := t.TempDir()
-	st, err := loadGroupStore(root)
-	if err != nil {
-		t.Fatal(err)
+func TestIsCommandLine(t *testing.T) {
+	cases := []struct {
+		line string
+		want bool
+	}{
+		{"r 1d6", true},
+		{".ra 心理学", true},
+		{"r3d6", true},
+		{"ob join", true},
+		{"绑定 1A2B3C4D", true},
+		{"pc tag 张三", true},
+		{"今天天气不错", false},
+		{"reset", false},
+		{"1d6", false},
 	}
-	rel := filepath.Join("logs", "s.md")
-	if err := st.update(func(gs *groupState) error {
-		gs.Log = logState{Active: true, Title: "测试团", File: rel}
-		return nil
-	}); err != nil {
-		t.Fatal(err)
-	}
-
-	appendLogEntry(st, root, "张三", ".ra 心理学", "目标 50 → 成功")
-	appendLogEntry(st, root, "李四", ".r 1d6", "4")
-
-	raw, err := os.ReadFile(filepath.Join(root, rel))
-	if err != nil {
-		t.Fatal(err)
-	}
-	text := string(raw)
-	for _, want := range []string{"张三", ".ra 心理学", "目标 50 → 成功", "李四", ".r 1d6"} {
-		if !strings.Contains(text, want) {
-			t.Fatalf("log missing %q:\n%s", want, text)
+	for _, c := range cases {
+		if got := isCommandLine(nil, c.line); got != c.want {
+			t.Fatalf("isCommandLine(%q) = %v, want %v", c.line, got, c.want)
 		}
-	}
-	var entries int
-	st.read(func(gs *groupState) { entries = gs.Log.Entries })
-	if entries != 2 {
-		t.Fatalf("entries = %d", entries)
-	}
-
-	// A stopped session records nothing.
-	if err := st.update(func(gs *groupState) error { gs.Log.Active = false; return nil }); err != nil {
-		t.Fatal(err)
-	}
-	appendLogEntry(st, root, "王五", ".r 1d100", "42")
-	raw, _ = os.ReadFile(filepath.Join(root, rel))
-	if strings.Contains(string(raw), "王五") {
-		t.Fatal("inactive log still recorded an entry")
-	}
-}
-
-func TestTailLines(t *testing.T) {
-	if got := tailLines("a\nb\nc\n", 2); got != "b\nc" {
-		t.Fatalf("tail = %q", got)
-	}
-	if got := tailLines("only", 5); got != "only" {
-		t.Fatalf("tail = %q", got)
 	}
 }

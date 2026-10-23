@@ -131,6 +131,44 @@ CREATE TABLE IF NOT EXISTS decks (
 	discard   TEXT NOT NULL DEFAULT '[]',
 	PRIMARY KEY (table_id, name)
 );
+
+CREATE TABLE IF NOT EXISTS game_meta (
+	table_id   TEXT PRIMARY KEY,
+	body       TEXT NOT NULL,
+	updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS logs (
+	id         TEXT PRIMARY KEY,
+	name       TEXT NOT NULL,
+	status     TEXT NOT NULL,
+	entries    INTEGER NOT NULL DEFAULT 0,
+	created_at TEXT NOT NULL,
+	updated_at TEXT NOT NULL,
+	body       TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_logs_created ON logs(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_logs_status ON logs(status, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS log_entries (
+	seq        INTEGER PRIMARY KEY AUTOINCREMENT,
+	log_id     TEXT NOT NULL REFERENCES logs(id) ON DELETE CASCADE,
+	at         TEXT NOT NULL,
+	kind       TEXT NOT NULL,
+	speaker_id TEXT NOT NULL DEFAULT '',
+	speaker    TEXT NOT NULL DEFAULT '',
+	text       TEXT NOT NULL,
+	result     TEXT NOT NULL DEFAULT '',
+	image_url  TEXT NOT NULL DEFAULT ''
+);
+
+CREATE INDEX IF NOT EXISTS idx_log_entries_log ON log_entries(log_id, seq);
+
+CREATE TABLE IF NOT EXISTS log_settings (
+	key   TEXT PRIMARY KEY,
+	value TEXT NOT NULL
+);
 `
 
 // Open opens (and creates) the database of a data root, applies the schema
@@ -272,13 +310,13 @@ func columnExists(ctx context.Context, tx *sql.Tx, table, column string) bool {
 
 // seedDefaultTable makes sure the implicit default table exists. Its
 // system_id stays empty ("use the registry default") until a user runs
-// `table system`.
+// `game system`.
 func (s *Store) seedDefaultTable(ctx context.Context) error {
 	const op = "sqlitedb.seedDefaultTable"
 	now := formatTime(time.Now().UTC())
 	_, err := s.db.ExecContext(ctx,
 		`INSERT OR IGNORE INTO tables (id, name, system_id, created_at, updated_at)
-		 VALUES ('default', '默认桌', '', ?, ?)`, now, now)
+		 VALUES ('default', '默认游戏', '', ?, ?)`, now, now)
 	if err != nil {
 		return apperr.Wrap(op, apperr.StorageWriteFailed, "cannot seed default table", err)
 	}

@@ -6,7 +6,7 @@ import (
 	"dicegirl/internal/app"
 )
 
-// bookCommand resolves a rulebook-declared short command alias.
+// bookCommand resolves a rulebook-declared command alias.
 //
 // Every rulebook declares its own alias in the manifest (`commands`), so
 // the CLI has no per-game command names: adding a game needs no Go change.

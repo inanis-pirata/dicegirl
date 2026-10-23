@@ -1,10 +1,10 @@
 package main
 
 // Per-group adapter state: the member→private-openid links learned through
-// binding codes, the per-table member→card bindings (`.pc tag`), the
-// hidden-result observer list (`.ob`) and the current session log (`.log`).
-// It lives next to the group's own data root, so it is isolated per group
-// like the games.
+// binding codes, the per-table member→card bindings (`.pc tag`) and the
+// hidden-result observer list (`.ob`). It lives next to the group's own data
+// root, so it is isolated per group like the games. Play logs are stored in
+// that root's database, not here.
 //
 // Bindings are scoped by game table: one member may be bound to a different
 // character card on each table the group runs. Files written before tables
@@ -41,20 +41,24 @@ type observerEntry struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
-type logState struct {
+// legacyLogState is the pre-database `.log start/stop` state. It is kept
+// only so the QQ adapter can import the referenced Markdown file into the
+// shared log store on first use. New sessions never write this field.
+type legacyLogState struct {
 	Active    bool      `json:"active"`
 	Title     string    `json:"title"`
-	File      string    `json:"file"` // relative to the group root
+	File      string    `json:"file"`
 	StartedAt time.Time `json:"started_at"`
 	Entries   int       `json:"entries"`
 }
 
 type groupState struct {
-	Links     map[string]memberLink             `json:"links"`
-	Bindings  map[string]map[string]cardBinding `json:"bindings"`
-	Observers map[string]observerEntry          `json:"observers"`
-	ObEnabled bool                              `json:"ob_enabled"`
-	Log       logState                          `json:"log"`
+	Links       map[string]memberLink             `json:"links"`
+	Bindings    map[string]map[string]cardBinding `json:"bindings"`
+	Observers   map[string]observerEntry          `json:"observers"`
+	ObEnabled   bool                              `json:"ob_enabled"`
+	LegacyLog   legacyLogState                    `json:"log"`
+	LogMigrated bool                              `json:"log_migrated,omitempty"`
 }
 
 // UnmarshalJSON accepts both the current nested bindings shape
@@ -62,11 +66,12 @@ type groupState struct {
 // flat entries to the implicit default table.
 func (s *groupState) UnmarshalJSON(data []byte) error {
 	type alias struct {
-		Links     map[string]memberLink    `json:"links"`
-		Bindings  json.RawMessage          `json:"bindings"`
-		Observers map[string]observerEntry `json:"observers"`
-		ObEnabled bool                     `json:"ob_enabled"`
-		Log       logState                 `json:"log"`
+		Links       map[string]memberLink    `json:"links"`
+		Bindings    json.RawMessage          `json:"bindings"`
+		Observers   map[string]observerEntry `json:"observers"`
+		ObEnabled   bool                     `json:"ob_enabled"`
+		LegacyLog   legacyLogState           `json:"log"`
+		LogMigrated bool                     `json:"log_migrated"`
 	}
 	var raw alias
 	if err := json.Unmarshal(data, &raw); err != nil {
@@ -75,7 +80,8 @@ func (s *groupState) UnmarshalJSON(data []byte) error {
 	s.Links = raw.Links
 	s.Observers = raw.Observers
 	s.ObEnabled = raw.ObEnabled
-	s.Log = raw.Log
+	s.LegacyLog = raw.LegacyLog
+	s.LogMigrated = raw.LogMigrated
 
 	nested := map[string]map[string]cardBinding{}
 	if len(raw.Bindings) > 0 {
@@ -147,6 +153,23 @@ func (s *groupStore) read(fn func(*groupState)) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	fn(&s.st)
+}
+
+// withLegacyLogMigration runs fn once, under the state lock, and persists the
+// migration marker only after fn succeeds. The callback receives a copy of
+// the old adapter log state; it must not call back into the store (the lock
+// is held) and should only touch the database.
+func (s *groupStore) withLegacyLogMigration(fn func(legacyLogState) error) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.st.LogMigrated {
+		return nil
+	}
+	if err := fn(s.st.LegacyLog); err != nil {
+		return err
+	}
+	s.st.LogMigrated = true
+	return s.persistLocked()
 }
 
 func (s *groupStore) persistLocked() error {

@@ -1,6 +1,7 @@
 // Package storage defines the persistence contracts of the data root: the
 // character cards, the roll statistics, the local state, the current
-// encounter and the card decks.
+// encounter and the card decks. It also holds the game-affairs metadata
+// (`game_meta`) and play-session logs (`.log`).
 //
 // The implementations live in internal/storage/sqlitedb (one transactional
 // database). The rules and the data packs are *not* part of this seam: they
@@ -22,15 +23,46 @@ type Deck struct {
 	Discard   []string `json:"discard,omitempty"`
 }
 
-// GameTable is one play table ("桌"/"团") inside a group data root. Table
-// state (active character, encounter, decks) is keyed by ID; cards stay
-// shared across tables.
+// GameTable is one game ("游戏"/"团") inside a group data root. Game state
+// (active character, encounter, decks) is keyed by ID; cards stay shared
+// across games.
 type GameTable struct {
 	ID        string    `json:"id"`
 	Name      string    `json:"name"`
 	SystemID  string    `json:"system_id"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// GameMember is one participant of a game: a GM or a player. ID is the
+// adapter's stable member identifier (a QQ member_openid in the group
+// adapter); Name is an optional human-readable label.
+type GameMember struct {
+	ID    string    `json:"id"`
+	Name  string    `json:"name,omitempty"`
+	Since time.Time `json:"since,omitempty"`
+}
+
+// GameRoulette is the anti-reroll bag of one die size. Remaining holds the
+// values still in the bag, Drawn the values already taken this round. When
+// Remaining is empty the bag is refilled with 1..Sides, Copies times each.
+type GameRoulette struct {
+	Sides     int   `json:"sides"`
+	Copies    int   `json:"copies"`
+	Remaining []int `json:"remaining"`
+	Drawn     []int `json:"drawn,omitempty"`
+}
+
+// GameMeta is the game-affairs state attached to one game table: the GM and
+// player rosters, arbitrary GM-owned variables, the open/closed flag and the
+// optional roulette die. A missing row means a fresh, open game with empty
+// rosters and variables.
+type GameMeta struct {
+	GMs      []GameMember      `json:"gms,omitempty"`
+	Players  []GameMember      `json:"players,omitempty"`
+	Vars     map[string]string `json:"vars,omitempty"`
+	Closed   bool              `json:"closed,omitempty"`
+	Roulette *GameRoulette     `json:"roulette,omitempty"`
 }
 
 // InitiativeEntry is one entry of the initiative order.
@@ -151,6 +183,18 @@ type TableStore interface {
 	DeleteTable(ctx context.Context, id string) error
 }
 
+// GameStore is the game-affairs metadata of each table: GM/player rosters,
+// variables, open/closed status and the roulette die.
+type GameStore interface {
+	// GameMeta returns one table's metadata; a missing row yields an empty,
+	// open GameMeta (never nil).
+	GameMeta(ctx context.Context, tableID string) (*GameMeta, error)
+	// SetGameMeta replaces one table's metadata.
+	SetGameMeta(ctx context.Context, tableID string, meta *GameMeta) error
+	// DeleteGameMeta removes one table's metadata (`.game over`).
+	DeleteGameMeta(ctx context.Context, tableID string) error
+}
+
 // EncounterStore is the current encounter's initiative list. Each table has
 // its own encounter.
 type EncounterStore interface {
@@ -162,4 +206,90 @@ type EncounterStore interface {
 type DeckStore interface {
 	Decks(ctx context.Context, tableID string) (map[string]*Deck, error)
 	SetDecks(ctx context.Context, tableID string, decks map[string]*Deck) error
+}
+
+// Log formats and statuses. A log is scoped to one data root (one group in
+// the chat adapters, one local data directory in the CLI).
+const (
+	LogFormatTXT  = "txt"
+	LogFormatHTML = "html"
+
+	LogStatusActive = "active"
+	LogStatusPaused = "paused"
+	LogStatusEnded  = "ended"
+	LogStatusHalted = "halted"
+)
+
+// LogEntryKind classifies one recorded log line. "say" is ordinary speech,
+// "command" is an executed chat command plus its rendered result, and
+// "system" is an application notice.
+const (
+	LogEntrySay     = "say"
+	LogEntryCommand = "command"
+	LogEntrySystem  = "system"
+)
+
+// LogEntry is one recorded message. Result holds the rendered command output;
+// Text holds the user's original line (or the speech itself).
+type LogEntry struct {
+	Seq       int64     `json:"seq,omitempty"`
+	At        time.Time `json:"at"`
+	Kind      string    `json:"kind"`
+	SpeakerID string    `json:"speaker_id,omitempty"`
+	Speaker   string    `json:"speaker,omitempty"`
+	Text      string    `json:"text"`
+	Result    string    `json:"result,omitempty"`
+	ImageURL  string    `json:"image_url,omitempty"`
+}
+
+// LogSession is one play-session log. ActiveSince marks the start of the
+// current recording span (zero while paused or ended). TimerSince marks the
+// start of the current timed span (zero when timing is off). Accrued is the
+// time accumulated by previous timed spans.
+type LogSession struct {
+	ID          string        `json:"id"`
+	Name        string        `json:"name"`
+	CreatorID   string        `json:"creator_id,omitempty"`
+	CreatorName string        `json:"creator_name,omitempty"`
+	Status      string        `json:"status"`
+	CreatedAt   time.Time     `json:"created_at"`
+	ActiveSince time.Time     `json:"active_since,omitempty"`
+	TimerSince  time.Time     `json:"timer_since,omitempty"`
+	Accrued     time.Duration `json:"accrued,omitempty"`
+	EndedAt     time.Time     `json:"ended_at,omitempty"`
+	Entries     int           `json:"entries"`
+}
+
+// LogSettings are the per-data-root log preferences.
+type LogSettings struct {
+	Format string `json:"format"`
+	Timer  bool   `json:"timer"`
+}
+
+// LogStore persists play-session logs together with their entries.
+type LogStore interface {
+	// LogSettings returns the data root's log preferences, applying the
+	// defaults (txt format, timer off) when nothing is stored.
+	LogSettings(ctx context.Context) (*LogSettings, error)
+	// SetLogSettings replaces the log preferences.
+	SetLogSettings(ctx context.Context, settings *LogSettings) error
+	// CurrentLog returns the in-progress log (active or paused), or nil.
+	CurrentLog(ctx context.Context) (*LogSession, error)
+	// LogByID returns one log, or nil when it does not exist.
+	LogByID(ctx context.Context, id string) (*LogSession, error)
+	// LogByName returns the newest log with the exact name, or nil.
+	LogByName(ctx context.Context, name string) (*LogSession, error)
+	// Logs returns every log, newest first.
+	Logs(ctx context.Context) ([]*LogSession, error)
+	// CreateLog stores a new session.
+	CreateLog(ctx context.Context, log *LogSession) error
+	// UpdateLog replaces a session's metadata. The entry count is owned by
+	// AppendLogEntry and is not overwritten here.
+	UpdateLog(ctx context.Context, log *LogSession) error
+	// DeleteLog removes a session and its entries.
+	DeleteLog(ctx context.Context, id string) error
+	// AppendLogEntry records one entry and increments the session's count.
+	AppendLogEntry(ctx context.Context, logID string, entry *LogEntry) error
+	// LogEntries returns a session's entries in recording order.
+	LogEntries(ctx context.Context, logID string) ([]LogEntry, error)
 }

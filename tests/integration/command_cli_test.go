@@ -21,12 +21,12 @@ func createInvestigator(t *testing.T, root, name string, extraSets ...string) {
 	if code, _, errs := runCLI(t, root, args...); code != 0 {
 		t.Fatalf("create code=%d stderr=%s", code, errs)
 	}
-	if code, _, errs := runCLI(t, root, ".dv", "--init"); code != 0 {
+	if code, _, errs := runCLI(t, root, ".st", "derived", "--init"); code != 0 {
 		t.Fatalf("derived --init code=%d stderr=%s", code, errs)
 	}
 }
 
-func TestShortRoll(t *testing.T) {
+func TestCommandRoll(t *testing.T) {
 	root := t.TempDir()
 
 	// Prefix punctuation and bare name all route to the roll statement.
@@ -42,6 +42,15 @@ func TestShortRoll(t *testing.T) {
 	if code != 0 || !strings.Contains(out, "d100") {
 		t.Fatalf("bare r code=%d out=%q err=%s", code, out, errs)
 	}
+	// Dice! `.rd` rolls the default die, and `.rd6` glues the face count.
+	code, out, errs = runCLI(t, root, "rd")
+	if code != 0 || !strings.Contains(out, "d100") {
+		t.Fatalf("rd code=%d out=%q err=%s", code, out, errs)
+	}
+	code, out, errs = runCLI(t, root, "rd6")
+	if code != 0 || !strings.Contains(out, "d6") {
+		t.Fatalf("rd6 code=%d out=%q err=%s", code, out, errs)
+	}
 
 	// JSON keeps the same batch container as the long roll command.
 	code, out, errs = runCLISeed(t, root, 7, "--json", "r", "2#1d6", "伤害")
@@ -50,7 +59,7 @@ func TestShortRoll(t *testing.T) {
 	}
 }
 
-func TestShortRA(t *testing.T) {
+func TestCommandRA(t *testing.T) {
 	root := t.TempDir()
 	createInvestigator(t, root, "调查员甲")
 
@@ -58,6 +67,20 @@ func TestShortRA(t *testing.T) {
 	code, out, errs := runCLI(t, root, "ra", "心理学")
 	if code != 0 || !strings.Contains(out, "[心理学]") || !strings.Contains(out, "普通成功") {
 		t.Fatalf("ra skill code=%d out=%q err=%s", code, out, errs)
+	}
+	// Dice! exposes the same check as `.rc`; keep both spellings identical.
+	code, out, errs = runCLI(t, root, "rc", "心理学")
+	if code != 0 || !strings.Contains(out, "[心理学]") {
+		t.Fatalf("rc skill code=%d out=%q err=%s", code, out, errs)
+	}
+	// .rb/.rp are bonus/penalty-die shorthands for the same check.
+	code, out, errs = runCLI(t, root, "rb", "心理学")
+	if code != 0 || !strings.Contains(out, "奖励骰") {
+		t.Fatalf("rb code=%d out=%q err=%s", code, out, errs)
+	}
+	code, out, errs = runCLI(t, root, "rp2", "60")
+	if code != 0 || !strings.Contains(out, "惩罚骰") {
+		t.Fatalf("rp2 code=%d out=%q err=%s", code, out, errs)
 	}
 	// Inline bonus dice as a suffix or bare signed token.
 	code, out, errs = runCLI(t, root, "ra", "心理学+2")
@@ -97,7 +120,7 @@ func TestShortRA(t *testing.T) {
 	}
 }
 
-func TestShortRADifficulty(t *testing.T) {
+func TestCommandRADifficulty(t *testing.T) {
 	root := t.TempDir()
 	createInvestigator(t, root, "调查员甲")
 
@@ -178,7 +201,7 @@ func TestShortRADifficulty(t *testing.T) {
 	}
 }
 
-func TestShortRABatch(t *testing.T) {
+func TestCommandRABatch(t *testing.T) {
 	root := t.TempDir()
 	createInvestigator(t, root, "调查员甲")
 
@@ -245,7 +268,7 @@ func TestShortRABatch(t *testing.T) {
 	}
 }
 
-func TestShortResourceChecks(t *testing.T) {
+func TestCommandResourceChecks(t *testing.T) {
 	root := t.TempDir()
 	createInvestigator(t, root, "调查员甲")
 
@@ -258,11 +281,6 @@ func TestShortResourceChecks(t *testing.T) {
 	if code != 0 || !strings.Contains(out, "san 55 → 55（0）已保存") {
 		t.Fatalf("sc apply code=%d out=%q err=%s", code, out, errs)
 	}
-	// rc takes the rulebook-declared check id explicitly.
-	code, out, errs = runCLI(t, root, "rc", "sanity", "0/1d3")
-	if code != 0 || !strings.Contains(out, "[理智]") {
-		t.Fatalf("rc code=%d out=%q err=%s", code, out, errs)
-	}
 	// JSON resource check matches the long `resource` contract.
 	code, out, errs = runCLI(t, root, "--json", "sc", "0/1d3")
 	if code != 0 || !strings.Contains(out, `"kind":"resource_check"`) || !strings.Contains(out, `"check_id":"sanity"`) {
@@ -273,8 +291,6 @@ func TestShortResourceChecks(t *testing.T) {
 	for _, args := range [][]string{
 		{"sc", "0"},
 		{"sc", "a/b/c"},
-		{"rc", "sanity"},
-		{"rc", "nope", "0/1"},
 	} {
 		if code, _, _ := runCLI(t, root, args...); code != 2 {
 			t.Fatalf("%v: code=%d, want 2", args, code)
@@ -282,7 +298,7 @@ func TestShortResourceChecks(t *testing.T) {
 	}
 }
 
-func TestShortST(t *testing.T) {
+func TestCommandST(t *testing.T) {
 	root := t.TempDir()
 	createInvestigator(t, root, "调查员甲")
 
@@ -298,6 +314,15 @@ func TestShortST(t *testing.T) {
 	code, out, errs := runCLI(t, root, "st", "psychology=65")
 	if code != 0 || !strings.Contains(out, "psychology 65") {
 		t.Fatalf("st set code=%d out=%q err=%s", code, out, errs)
+	}
+	// Dice! also accepts the '='-less form and name/value pairs.
+	code, out, errs = runCLI(t, root, "st", "psychology70")
+	if code != 0 || !strings.Contains(out, "psychology 70") {
+		t.Fatalf("st glued set code=%d out=%q err=%s", code, out, errs)
+	}
+	code, out, errs = runCLI(t, root, "st", "EDU", "66")
+	if code != 0 || !strings.Contains(out, "EDU 66") {
+		t.Fatalf("st pair set code=%d out=%q err=%s", code, out, errs)
 	}
 
 	// Adjustment path: integer delta and rolled dice delta (seed 7 rolls 4
@@ -322,6 +347,7 @@ func TestShortST(t *testing.T) {
 	// Mixing assignment and adjustment, and bad expressions, are usage errors.
 	for _, args := range [][]string{
 		{"st", "STR=50", "san-1"},
+		{"st", "STR50", "san-1"},
 		{"st", "san-abc"},
 		{"st", "nosuchkey+1"},
 	} {
@@ -331,7 +357,7 @@ func TestShortST(t *testing.T) {
 	}
 }
 
-func TestShortPCAndRH(t *testing.T) {
+func TestCommandPCAndRH(t *testing.T) {
 	root := t.TempDir()
 	createInvestigator(t, root, "调查员甲")
 
@@ -357,7 +383,7 @@ func TestShortPCAndRH(t *testing.T) {
 	}
 }
 
-func TestShortSanityFumbleTakesMaximum(t *testing.T) {
+func TestCommandSanityFumbleTakesMaximum(t *testing.T) {
 	// Seed 3 draws 100 on the first d100: it is a fumble against target < 50. POW=1 initializes the san track at 1.
 	root := t.TempDir()
 	createInvestigator(t, root, "倒霉蛋", "POW=1")

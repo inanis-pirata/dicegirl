@@ -251,7 +251,7 @@ func (b *Book) RunGrowth(ctx context.Context, gc *compiledGrowthCheck, in Growth
 	return res, nil
 }
 
-// RuleEntry is one quick-reference entry of a rulebook (the Dice! `.rules`
+// RuleEntry is one quick-reference entry of a rulebook (Dice!'s rules
 // dictionary). The text is a short, self-written summary: the rulebooks
 // never quote copyrighted rule text verbatim.
 type RuleEntry struct {

@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -9,6 +10,10 @@ import (
 	"dicegirl/internal/dice"
 	"dicegirl/internal/engine"
 )
+
+// bareDieRE matches the Dice!Next roulette target: a single die, single
+// trial, `dN` or `1dN`. Any modifier or arithmetic keeps the ordinary roll.
+var bareDieRE = regexp.MustCompile(`(?i)^(?:1)?d(\d+)$`)
 
 // Roll parses and rolls a generic dice expression. A macro name saved on
 // the active character card is expanded first.
@@ -29,7 +34,52 @@ func (a *App) RollStatement(ctx context.Context, input string) (*dice.BatchResul
 	if err != nil {
 		return nil, err
 	}
+	if batch, ok, err := a.rollRouletteStatement(ctx, resolved); err != nil || ok {
+		return batch, err
+	}
 	return a.roller.RollStatement(ctx, resolved)
+}
+
+// rollRouletteStatement takes one value from the current game's roulette
+// instead of rolling a bare dN. It reports false (and no error) whenever the
+// statement is not a single dN or no matching roulette is active.
+func (a *App) rollRouletteStatement(ctx context.Context, input string) (*dice.BatchResult, bool, error) {
+	st, err := dice.ParseStatement(input, dice.DefaultLimits())
+	if err != nil || st.Repeat != 1 {
+		return nil, false, nil
+	}
+	m := bareDieRE.FindStringSubmatch(strings.TrimSpace(st.Expr))
+	if m == nil {
+		return nil, false, nil
+	}
+	sides, err := strconv.Atoi(m[1])
+	if err != nil || sides < 1 {
+		return nil, false, nil
+	}
+	value, ok, err := a.drawRoulette(ctx, sides)
+	if err != nil || !ok {
+		return nil, false, err
+	}
+	node := &dice.DiceNode{
+		Count: 1,
+		Sides: sides,
+		Rolls: []dice.DieRoll{{Value: value, Kept: true}},
+		Value: value,
+	}
+	rr := &dice.RollResult{
+		Expression: st.Expr,
+		Root:       node,
+		Total:      value,
+		Groups:     []*dice.DiceNode{node},
+	}
+	if st.Compare != nil {
+		rr.Compare = st.Compare.Judge(value)
+	}
+	return &dice.BatchResult{
+		Expression: strings.TrimSpace(input),
+		Repeat:     1,
+		Rolls:      []*dice.RollResult{rr},
+	}, true, nil
 }
 
 // MaxPoolDice bounds the number of dice one pool rolls.

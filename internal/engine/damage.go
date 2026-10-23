@@ -51,6 +51,20 @@ func (b *Book) LookupDamageBonus(key int) (DBRow, error) {
 		fmt.Sprintf("damage-bonus key %d outside the table", key))
 }
 
+// DamageBonus resolves the damage-bonus row for a character. A missing
+// character or a rulebook without a damage_bonus table yields a zero bonus.
+func (b *Book) DamageBonus(c *character.Character) (DBRow, error) {
+	if c == nil || b.dbTable == nil {
+		return DBRow{Bonus: "0"}, nil
+	}
+	key, err := b.dbTable.key.EvalInt(formula.Env(c.Attributes))
+	if err != nil {
+		return DBRow{}, apperr.Wrap("engine.DamageBonus", apperr.InvalidArgument,
+			"cannot compute damage-bonus key", err)
+	}
+	return b.LookupDamageBonus(key)
+}
+
 // Damage validates the base expression, resolves the attacker's damage
 // bonus from the rulebook table (when a character is given), combines them
 // and rolls through the generic dice engine.
@@ -63,21 +77,12 @@ func (b *Book) Damage(ctx context.Context, in DamageInput) (*DamageResult, error
 		return nil, apperr.Wrap(op, apperr.InvalidArgument, "invalid damage expression", err)
 	}
 
-	dbExpr := "0"
-	build := 0
-	if in.Character != nil && b.dbTable != nil {
-		key, err := b.dbTable.key.EvalInt(formula.Env(in.Character.Attributes))
-		if err != nil {
-			return nil, apperr.Wrap(op, apperr.InvalidArgument,
-				"cannot compute damage-bonus key", err)
-		}
-		row, err := b.LookupDamageBonus(key)
-		if err != nil {
-			return nil, err
-		}
-		dbExpr = row.Bonus
-		build = row.Build
+	row, err := b.DamageBonus(in.Character)
+	if err != nil {
+		return nil, err
 	}
+	dbExpr := row.Bonus
+	build := row.Build
 
 	combined := fmt.Sprintf("%s+(%s)", in.Expr, dbExpr)
 	roll, err := b.roller.Roll(ctx, combined)

@@ -235,7 +235,7 @@ func (a *App) Difficulties(ctx context.Context, systemID, characterID string) ([
 	return book.Difficulties(), nil
 }
 
-// ResolveCheckName disambiguates a free-form check name (short-command
+// ResolveCheckName disambiguates a free-form check name (command
 // syntax has no --skill/--attr split): it returns the canonical skill id or
 // attribute id the name refers to in the rulebook applicable to the
 // (active) character context. Exactly one return id is non-empty.

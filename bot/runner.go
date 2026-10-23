@@ -20,6 +20,12 @@ type runOptions struct {
 	autoApply        bool
 	defaultCharacter string
 	cardCreated      func(id, name string)
+	actorID          string
+	actorName        string
+	actorAdmin       bool
+	gameOver         func(tableID string)
+	logFile          func(path string)
+	logPrefix        string
 }
 
 // WithJSON requests structured JSON output instead of human-readable text.
@@ -27,7 +33,7 @@ func WithJSON() RunOption {
 	return func(o *runOptions) { o.jsonMode = true }
 }
 
-// WithAutoApply makes sc/rc write resource changes back implicitly (chat
+// WithAutoApply makes sc write resource changes back implicitly (chat
 // platform convention; the CLI requires an explicit --apply).
 func WithAutoApply() RunOption {
 	return func(o *runOptions) { o.autoApply = true }
@@ -44,6 +50,30 @@ func WithDefaultCharacter(id string) RunOption {
 // sender on the current table.
 func WithCardCreatedHook(hook func(id, name string)) RunOption {
 	return func(o *runOptions) { o.cardCreated = hook }
+}
+
+// WithActor identifies the sender for game-affairs commands (GM/player
+// rosters). Group adapters pass the platform member id, its display label and
+// the platform's group-management flag.
+func WithActor(id, name string, admin bool) RunOption {
+	return func(o *runOptions) { o.actorID, o.actorName, o.actorAdmin = id, name, admin }
+}
+
+// WithGameOverHook installs a callback fired after `.game over` clears a
+// table. Group adapters use it to drop per-table card bindings.
+func WithGameOverHook(hook func(tableID string)) RunOption {
+	return func(o *runOptions) { o.gameOver = hook }
+}
+
+// WithLogFileHook installs a callback fired when `.log end/get/export` writes
+// an export file. Group adapters upload the file to the platform.
+func WithLogFileHook(hook func(path string)) RunOption {
+	return func(o *runOptions) { o.logFile = hook }
+}
+
+// WithLogPrefix prefixes the command line recorded in an active play log.
+func WithLogPrefix(prefix string) RunOption {
+	return func(o *runOptions) { o.logPrefix = prefix }
 }
 
 // Result is the rendered outcome of one inbound command line.
@@ -88,6 +118,18 @@ func (m *Manager) RunLine(ctx context.Context, kind, id, line string, opts ...Ru
 	}
 	if ro.cardCreated != nil {
 		execOpts = append(execOpts, chatcore.WithCardCreatedHook(ro.cardCreated))
+	}
+	if ro.actorID != "" {
+		execOpts = append(execOpts, chatcore.WithActor(ro.actorID, ro.actorName, ro.actorAdmin))
+	}
+	if ro.gameOver != nil {
+		execOpts = append(execOpts, chatcore.WithGameOverHook(ro.gameOver))
+	}
+	if ro.logFile != nil {
+		execOpts = append(execOpts, chatcore.WithLogFileHook(ro.logFile))
+	}
+	if ro.logPrefix != "" {
+		execOpts = append(execOpts, chatcore.WithLogPrefix(ro.logPrefix))
 	}
 	res := Result{}
 	t.Lock(func() {

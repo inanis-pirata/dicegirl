@@ -47,10 +47,10 @@ func ParseAssignment(s string) (Assignment, error) {
 //
 // The owning rulebook's character rules finish the fresh sheet right away:
 // the derived initial resource tracks (HP/MP/SAN, ...) and missing initial
-// attributes are recorded exactly as after `dv --init`. A hand-built card may
+// attributes are recorded exactly as after `st derived --init`. A hand-built card may
 // omit characteristics the derived formulas need; the card itself is valid,
-// so it is kept with a nil derived result and the caller can offer `dv
-// --init` once the values are filled in (rolled generation always provides
+// so it is kept with a nil derived result and the caller can offer
+// `st derived --init` once the values are filled in (rolled generation always provides
 // the full characteristic set).
 func (a *App) CreateCharacter(ctx context.Context, systemID, name string, sets []Assignment, makeActive bool) (*character.Character, *engine.DerivedResult, error) {
 	const op = "app.CreateCharacter"

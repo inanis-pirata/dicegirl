@@ -12,7 +12,7 @@
 # rulebook wording. SRD content is CC-BY-4.0; this file only encodes
 # mechanics.
 #
-# Check conventions (short commands — the chat-facing interface):
+# Check conventions (commands — the chat-facing interface):
 #
 #   * A plain DC check is  .ra <DC>   (one d20 against the DC).
 #   * A character's own bonus is folded into the target with --mod:
@@ -33,7 +33,7 @@ name: "Dungeons & Dragons 5th Edition (2014)"
 system_version: "0.1.0"
 rules_version: "5e-2014"
 description: "D&D 5e（2014 PHB/SRD）规则书：d20 检定、优势/劣势、DC、六属性与 18 技能、派生数值与随机表"
-# The short command this book answers to (character generation): ".dnd"
+# The command this book answers to (character generation): ".dnd"
 # (4d6 drop lowest) and ".dndd" (27-point buy).
 commands: ["dnd"]
 
@@ -146,18 +146,18 @@ derived:
   vitals:
     - { resource: hp, max: max_hp, initial: max_hp }
 
-# Quick-reference entries (the `.rules` dictionary). Short summaries in our
+# Quick-reference entries (the `rule ref` dictionary). Short summaries in our
 # own words, not the rulebook wording.
 rules:
   - id: ability_check
     title: "属性检定与 DC"
     keywords: ["检定", "属性检定", "dc", "难度"]
-    text: "检定 = d20 + 属性调整值（受训的技能再加熟练加值），结果不小于 DC 即成功。常用 DC：5 极易、10 简单、15 中等、20 困难、25 很难、30 几乎不可能。短指令直接比较 d20 与目标：把 DC 减去角色加值后掷 `.ra 10`，或用 `.ra 15 --mod -5`（等价）；优势写 `.ra 15+1`，劣势写 `.ra 15-1`。"
+    text: "检定 = d20 + 属性调整值（受训的技能再加熟练加值），结果不小于 DC 即成功。常用 DC：5 极易、10 简单、15 中等、20 困难、25 很难、30 几乎不可能。指令直接比较 d20 与目标：把 DC 减去角色加值后掷 `.ra 10`，或用 `.ra 15 --mod -5`（等价）；优势写 `.ra 15+1`，劣势写 `.ra 15-1`。"
 
   - id: advantage
     title: "优势与劣势"
     keywords: ["优势", "劣势", "advantage", "disadvantage", "取高", "取低"]
-    text: "优势：掷两颗 d20 取较高者；劣势：取较低者。多个优势或多个劣势不叠加，同时具有优势与劣势时二者互相抵消，恢复单颗 d20。短指令写成 `.ra 15+1`（优势）或 `.ra 15-1`（劣势），也可分开写 `.ra 15 +1`。"
+    text: "优势：掷两颗 d20 取较高者；劣势：取较低者。多个优势或多个劣势不叠加，同时具有优势与劣势时二者互相抵消，恢复单颗 d20。指令写成 `.ra 15+1`（优势）或 `.ra 15-1`（劣势），也可分开写 `.ra 15 +1`。"
 
   - id: proficiency
     title: "熟练加值"

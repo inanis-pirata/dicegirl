@@ -107,6 +107,9 @@ func (a *App) resolveMacro(ctx context.Context, name string) (string, bool) {
 	if name == "" {
 		return "", false
 	}
+	if strings.HasPrefix(name, MacroPrefix) {
+		name = strings.TrimPrefix(name, MacroPrefix)
+	}
 	active, err := a.state.ActiveID(ctx)
 	if err != nil || active == "" {
 		return "", false
@@ -148,8 +151,12 @@ func (a *App) resolveRollInput(ctx context.Context, input string) (string, error
 		name = strings.TrimSpace(name[i+1:])
 	}
 	if name != "" && hasNonASCII(name) {
+		report := name
+		if strings.HasPrefix(report, MacroPrefix) {
+			report = strings.TrimPrefix(report, MacroPrefix)
+		}
 		return "", apperr.New("app.resolveRollInput", apperr.InvalidArgument,
-			"unknown macro: "+name)
+			"unknown macro: "+report)
 	}
 	return input, nil
 }

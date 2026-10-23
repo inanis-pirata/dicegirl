@@ -4,10 +4,10 @@ package main
 //
 //	ob join | ob exit | ob list | ob on | ob off   hidden-roll observers
 //	pc tag [名字|id] | pc untag | pc grp            per-member card binding
-//	log start [标题] | log stop | log status | log show [n] | log list
 //
 // They are handled before chatcore because they need platform state; all
-// game commands still go through the shared chat grammar.
+// game and log commands go through the shared chat grammar. The only log
+// responsibility left here is uploading a generated export file.
 
 import (
 	"context"
@@ -20,6 +20,7 @@ import (
 
 	"dicegirl/bot"
 	"dicegirl/chatcore"
+	"dicegirl/internal/app"
 	"dicegirl/internal/apperr"
 	"dicegirl/internal/storage"
 )
@@ -29,7 +30,7 @@ import (
 func (h *botHandler) scopeTableID(ctx context.Context, t *bot.Tenant) string {
 	id, err := t.App.ActiveTableID(ctx)
 	if err != nil {
-		h.logger.Printf("解析当前桌失败：%v", err)
+		h.logger.Printf("解析当前游戏失败：%v", err)
 		return storage.DefaultTableID
 	}
 	if id == "" {
@@ -101,7 +102,7 @@ func isGroupPCCommand(fields []string) (string, bool) {
 	if len(fields) < 2 {
 		return "", false
 	}
-	name, _ := chatcore.ShortToken(fields[0])
+	name, _ := chatcore.StripCommandPrefix(fields[0])
 	if name != "pc" {
 		return "", false
 	}
@@ -118,7 +119,7 @@ func groupCommandName(line string) string {
 	if len(fields) == 0 {
 		return ""
 	}
-	name, _ := chatcore.ShortToken(fields[0])
+	name, _ := chatcore.StripCommandPrefix(fields[0])
 	return name
 }
 
@@ -252,7 +253,7 @@ func (h *botHandler) runPCBinding(ctx context.Context, tenant *bot.Tenant, st *g
 			reply("保存绑卡失败：" + err.Error())
 			return
 		}
-		reply(fmt.Sprintf("已在桌「%s」绑定角色「%s」；该桌上的 ra/st/sc 等指令默认使用这张卡", tableName, c.Name))
+		reply(fmt.Sprintf("已在游戏「%s」绑定角色「%s」；该游戏上的 ra/st/sc 等指令默认使用这张卡", tableName, c.Name))
 	case "untag":
 		all := len(args) > 0 && args[0] == "all"
 		err := st.update(func(gs *groupState) error {
@@ -273,14 +274,14 @@ func (h *botHandler) runPCBinding(ctx context.Context, tenant *bot.Tenant, st *g
 			return
 		}
 		if all {
-			reply("已解除所有桌上的绑卡")
+			reply("已解除所有游戏上的绑卡")
 		} else {
-			reply(fmt.Sprintf("已解除桌「%s」的绑卡（其他桌不受影响；pc untag all 解除全部）", tableName))
+			reply(fmt.Sprintf("已解除游戏「%s」的绑卡（其他游戏不受影响；pc untag all 解除全部）", tableName))
 		}
 	case "grp":
 		list, err := tenant.App.ListGameTables(sctx)
 		if err != nil {
-			reply("读取桌列表失败：" + err.Error())
+			reply("读取游戏列表失败：" + err.Error())
 			return
 		}
 		names := map[string]string{}
@@ -306,10 +307,10 @@ func (h *botHandler) runPCBinding(ctx context.Context, tenant *bot.Tenant, st *g
 		})
 		sort.Strings(lines)
 		if len(lines) == 0 {
-			reply("本群还没有人绑卡（pc tag <名字>；绑卡按桌隔离）")
+			reply("本群还没有人绑卡（pc tag <名字>；绑卡按游戏隔离）")
 			return
 		}
-		reply("本群绑卡（按桌）：\n" + strings.Join(lines, "\n"))
+		reply("本群绑卡（按游戏）：\n" + strings.Join(lines, "\n"))
 	}
 }
 
@@ -329,224 +330,56 @@ func errMessage(err error) string {
 	return err.Error()
 }
 
-// --- session log -----------------------------------------------------------
-
-// runLog implements `.log`. Entries are appended by runNormal whenever a
-// session is active.
-func (h *botHandler) runLog(ctx context.Context, tenant *bot.Tenant, st *groupStore,
-	ev messageEvent, args []string, reply func(string)) {
-	if len(args) == 0 {
-		reply("用法：log start [标题]｜log stop｜log status｜log show [行数]｜log list")
-		return
-	}
-	switch args[0] {
-	case "start":
-		title := strings.TrimSpace(strings.Join(args[1:], " "))
-		if title == "" {
-			title = "跑团记录 " + time.Now().Format("2006-01-02")
-		}
-		now := time.Now()
-		rel := filepath.Join("logs", now.Format("20060102-150405")+".md")
-		path := filepath.Join(tenant.Root, rel)
-		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-			reply("创建战报失败：" + err.Error())
-			return
-		}
-		header := fmt.Sprintf("# %s\n\n开始：%s\n\n", title, now.Format("2006-01-02 15:04:05"))
-		if err := os.WriteFile(path, []byte(header), 0o600); err != nil {
-			reply("创建战报失败：" + err.Error())
-			return
-		}
-		err := st.update(func(gs *groupState) error {
-			gs.Log = logState{Active: true, Title: title, File: rel, StartedAt: now}
-			return nil
+// migrateLegacyLogs imports the Markdown sessions written by the old
+// adapter into the shared log store. It runs once per group root; the
+// adapter.json marker is written only after the whole import succeeds.
+func (h *botHandler) migrateLegacyLogs(ctx context.Context, t *bot.Tenant, st *groupStore) error {
+	return st.withLegacyLogMigration(func(legacy legacyLogState) error {
+		n, err := t.App.ImportLegacyLogs(ctx, t.Root, app.LegacyLogSource{
+			Active:    legacy.Active,
+			File:      legacy.File,
+			StartedAt: legacy.StartedAt,
 		})
-		if err != nil {
-			reply("保存战报状态失败：" + err.Error())
-			return
+		if err == nil && n > 0 {
+			h.logger.Printf("已导入旧版战报 %d 份 root=%s", n, t.Root)
 		}
-		reply(fmt.Sprintf("战报已开始记录：《%s》。用 log stop 结束，log show 查看", title))
-	case "stop":
-		var title string
-		err := st.update(func(gs *groupState) error {
-			if !gs.Log.Active {
-				return fmt.Errorf("当前没有进行中的战报")
-			}
-			title = gs.Log.Title
-			gs.Log.Active = false
-			return nil
-		})
-		if err != nil {
-			reply(err.Error())
-			return
-		}
-		// The file itself is the result; on failure fall back to a notice.
-		if ok, msg := h.sendLogFile(ctx, ev, tenant, st, ""); !ok {
-			reply(fmt.Sprintf("战报《%s》已停止，但文件发送失败：%s", title, msg))
-		}
-	case "status":
-		var out string
-		st.read(func(gs *groupState) {
-			if !gs.Log.Active {
-				out = "当前没有进行中的战报（log start [标题] 开始）"
-				return
-			}
-			out = fmt.Sprintf("战报《%s》记录中：%d 条，开始于 %s",
-				gs.Log.Title, gs.Log.Entries, gs.Log.StartedAt.Format("15:04"))
-		})
-		reply(out)
-	case "show", "file", "export":
-		// A file keeps any length in one place; text is only the fallback.
-		name := ""
-		if len(args) > 1 && args[0] != "show" {
-			name = args[1]
-		}
-		if ok, msg := h.sendLogFile(ctx, ev, tenant, st, name); ok {
-			return
-		} else if name != "" {
-			reply(msg)
-			return
-		}
-		lines := 30
-		if len(args) > 1 {
-			if n, err := parseInt(args[1]); err == nil && n > 0 {
-				lines = n
-			}
-		}
-		content, path := currentLog(st, tenant.Root)
-		if path == "" {
-			reply("当前没有战报文件（log start 开始记录）")
-			return
-		}
-		reply(tailLines(content, lines) + "\n\n（文件发送失败，以上为末尾预览）")
-	case "list":
-		dir := filepath.Join(tenant.Root, "logs")
-		entries, err := os.ReadDir(dir)
-		if err != nil || len(entries) == 0 {
-			reply("还没有战报文件")
-			return
-		}
-		var names []string
-		for _, e := range entries {
-			if !e.IsDir() && strings.HasSuffix(e.Name(), ".md") {
-				names = append(names, e.Name())
-			}
-		}
-		sort.Sort(sort.Reverse(sort.StringSlice(names)))
-		reply("战报文件（服务器路径 " + dir + "）：\n" + strings.Join(names, "\n"))
-	default:
-		reply("用法：log start [标题]｜log stop｜log status｜log show [行数]｜log list")
-	}
+		return err
+	})
 }
 
-// sendLogFile uploads the current (or named) log file and attaches it to the
-// triggering message as a passive file reply. ok=false carries a reason for
-// the caller's text fallback.
-func (h *botHandler) sendLogFile(ctx context.Context, ev messageEvent, tenant *bot.Tenant,
-	st *groupStore, name string) (bool, string) {
-	path, err := logFilePath(tenant.Root, st, name)
-	if err != nil {
-		return false, err.Error()
+// isCommandLine reports whether a group message starts a command, including
+// adapter-only names (ob/bind), glued forms such as r3d6, and rulebook-declared
+// generation aliases such as coc6d. Non-command chat is what a play log
+// records as ordinary speech.
+func isCommandLine(a *app.App, line string) bool {
+	fields := strings.Fields(line)
+	if len(fields) == 0 {
+		return false
 	}
+	if _, _, _, ok := chatcore.SplitCommandToken(fields[0], "ob", "bind", "绑定", "绑定码"); ok {
+		return true
+	}
+	name, _ := chatcore.StripCommandPrefix(fields[0])
+	_, _, _, ok := chatcore.BookCommand(a, name)
+	return ok
+}
+
+// sendLogFile uploads one exported log file and attaches it to the triggering
+// message in either a group or a private chat. seq is the passive-reply
+// sequence number.
+func (h *botHandler) sendLogFile(ctx context.Context, scope, target, msgID, path string, seq int) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return false, "读取战报失败：" + err.Error()
+		return fmt.Errorf("读取日志失败：%w", err)
 	}
-	fileInfo, err := h.api.uploadFile(ctx, botScopeGroup, ev.GroupOpenid, filepath.Base(path), data)
+	fileInfo, err := h.api.uploadFile(ctx, scope, target, filepath.Base(path), data)
 	if err != nil {
-		h.logger.Printf("战报上传失败：%v", err)
-		return false, "上传失败：" + err.Error()
+		h.logger.Printf("日志上传失败 scope=%s target=%s：%v", scope, target, err)
+		return fmt.Errorf("上传失败：%w", err)
 	}
-	if err := h.api.sendFileReply(ctx, botScopeGroup, ev.GroupOpenid, ev.ID, 1, fileInfo); err != nil {
-		h.logger.Printf("战报发送失败：%v", err)
-		return false, "发送失败：" + err.Error()
+	if err := h.api.sendFileReply(ctx, scope, target, msgID, seq, fileInfo); err != nil {
+		h.logger.Printf("日志发送失败 scope=%s target=%s：%v", scope, target, err)
+		return fmt.Errorf("发送失败：%w", err)
 	}
-	return true, ""
-}
-
-// logFilePath resolves the log file to send: an explicit name must be a
-// plain .md file inside the group's logs directory; an empty name selects
-// the current (or most recent) session log.
-func logFilePath(root string, st *groupStore, name string) (string, error) {
-	logsDir := filepath.Join(root, "logs")
-	if name == "" {
-		var rel string
-		st.read(func(gs *groupState) { rel = gs.Log.File })
-		if rel == "" {
-			return "", fmt.Errorf("当前没有战报文件（log start 开始记录）")
-		}
-		return filepath.Join(root, rel), nil
-	}
-	if name != filepath.Base(name) || !strings.HasSuffix(name, ".md") {
-		return "", fmt.Errorf("无效的战报文件名：%s", name)
-	}
-	return filepath.Join(logsDir, name), nil
-}
-
-// appendLogEntry records one executed command while a session is active.
-func appendLogEntry(st *groupStore, root, label, line, out string) {
-	_ = st.update(func(gs *groupState) error {
-		if !gs.Log.Active {
-			return nil
-		}
-		path := filepath.Join(root, gs.Log.File)
-		var b strings.Builder
-		fmt.Fprintf(&b, "### %s · %s\n\n", time.Now().Format("15:04:05"), label)
-		fmt.Fprintf(&b, "> %s\n\n", line)
-		for _, l := range strings.Split(strings.TrimRight(out, "\n"), "\n") {
-			b.WriteString("    ")
-			b.WriteString(l)
-			b.WriteByte('\n')
-		}
-		b.WriteByte('\n')
-		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-			return err
-		}
-		f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
-		if err != nil {
-			return err
-		}
-		if _, err := f.WriteString(b.String()); err != nil {
-			_ = f.Close()
-			return err
-		}
-		if err := f.Close(); err != nil {
-			return err
-		}
-		gs.Log.Entries++
-		return nil
-	})
-}
-
-func currentLog(st *groupStore, root string) (string, string) {
-	var rel string
-	st.read(func(gs *groupState) {
-		if gs.Log.Active {
-			rel = gs.Log.File
-		}
-	})
-	if rel == "" {
-		return "", ""
-	}
-	path := filepath.Join(root, rel)
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return "", ""
-	}
-	return string(raw), path
-}
-
-// tailLines returns the last n lines of s.
-func tailLines(s string, n int) string {
-	lines := strings.Split(strings.TrimRight(s, "\n"), "\n")
-	if len(lines) > n {
-		lines = lines[len(lines)-n:]
-	}
-	return strings.Join(lines, "\n")
-}
-
-func parseInt(s string) (int, error) {
-	var n int
-	_, err := fmt.Sscan(s, &n)
-	return n, err
+	return nil
 }

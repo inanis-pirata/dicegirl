@@ -21,32 +21,34 @@ import (
 	"dicegirl/internal/engine"
 )
 
-// shortPrefixes are the optional leading punctuation marks Dice! accepts.
-var shortPrefixes = map[rune]bool{'.': true, '。': true, '!': true, '！': true}
+// commandPrefixes are the optional leading punctuation marks Dice! accepts.
+var commandPrefixes = map[rune]bool{'.': true, '。': true, '!': true, '！': true}
 
-// shortCommands is the complete alias table; unknown names get a usage error.
-var shortCommands = map[string]bool{
-	"r": true, "rs": true, "ra": true, "rc": true, "sc": true,
-	"st": true, "pc": true, "rh": true, "set": true,
+// commandNames is the complete alias table; unknown names get a usage error.
+var commandNames = map[string]bool{
+	"r": true, "rs": true, "rd": true, "ra": true, "rah": true, "rb": true,
+	"rc": true, "rch": true, "rp": true, "sc": true,
+	"st": true, "pc": true, "h": true, "rh": true, "set": true,
 	"ti": true, "li": true, "ak": true, "name": true, "en": true,
-	"w": true, "ww": true, "rules": true,
+	"w": true, "ww": true,
 	"ri": true, "init": true, "deck": true, "draw": true, "drawh": true,
-	"sys": true, "dv": true, "dmg": true, "opp": true, "tb": true,
+	"rav": true, "tb": true,
+	"rule": true, "game": true, "log": true,
 	"help": true, "帮助": true,
 }
 
 // cocFamilyRE and the `.coc`/`.dnd` name families are gone: every rulebook
-// declares its own short command alias in its manifest (`commands`), so the
+// declares its own command alias in its manifest (`commands`), so the
 // CLI has no per-game command names. See bookCommand in bookcmd.go.
 
-// shortToken strips any leading alias punctuation marks, reporting whether
+// stripCommandPrefix strips any leading alias punctuation marks, reporting whether
 // the token carried at least one. The name is lower-cased so command matching
 // is case-insensitive ("R", "R1d3" work like "r", "r1d3").
-func shortToken(token string) (name string, prefixed bool) {
+func stripCommandPrefix(token string) (name string, prefixed bool) {
 	s := token
 	for len(s) > 0 {
 		r, size := utf8.DecodeRuneInString(s)
-		if size > 0 && shortPrefixes[r] && len(s) > size {
+		if size > 0 && commandPrefixes[r] && len(s) > size {
 			s = s[size:]
 			prefixed = true
 			continue
@@ -60,12 +62,12 @@ func shortToken(token string) (name string, prefixed bool) {
 	return strings.ToLower(s), prefixed
 }
 
-func isShortCommand(name string) bool {
-	return shortCommands[name]
+func isCommandName(name string) bool {
+	return commandNames[name]
 }
 
 // SplitCommandToken normalizes the first whitespace-delimited token of a
-// chat line. Besides stripping one optional punctuation mark (shortToken), it
+// chat line. Besides stripping one optional punctuation mark (stripCommandPrefix), it
 // repairs a command name glued to its first argument: ".r3d6" and "r3d6"
 // split into ("r", "3d6"). Matching prefers the longest command prefix, so
 // ".drawh命运" splits at "drawh", not "draw".
@@ -79,8 +81,8 @@ func isShortCommand(name string) bool {
 // split (a digit, CJK rune or punctuation — not an ASCII letter), so casual
 // words such as "reset" are never mistaken for "r est".
 func SplitCommandToken(token string, extra ...string) (name, glued string, prefixed, ok bool) {
-	raw, mark := shortToken(token)
-	if isShortCommand(raw) {
+	raw, mark := stripCommandPrefix(token)
+	if isCommandName(raw) {
 		return raw, "", mark, true
 	}
 	for _, e := range extra {
@@ -102,7 +104,7 @@ func SplitCommandToken(token string, extra ...string) (name, glued string, prefi
 		}
 		best = cand
 	}
-	for c := range shortCommands {
+	for c := range commandNames {
 		consider(c)
 	}
 	for _, e := range extra {
@@ -119,85 +121,90 @@ func isASCIILetter(b byte) bool {
 	return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z')
 }
 
-// dispatchShort runs one recognized short command. It never returns
+// dispatchCommand runs one recognized command. It never returns
 // "unrecognized": the caller decides fall-through.
 //
 // The rulebook-declared generation aliases (".coc", ".dnd", ...) are
 // resolved before this point (see bookCommand in bookcmd.go), so the table
 // below only holds the game-independent commands.
-func dispatchShort(ctx context.Context, name string, args []string,
+func dispatchCommand(ctx context.Context, name string, args []string,
 	application *app.App, r *Renderer, stdin io.Reader, stderr io.Writer) int {
 	switch name {
 	case "help", "帮助":
 		_, _ = io.WriteString(r.Out, HelpText)
 		return 0
 	case "r":
-		return shortR(ctx, args, application, r, stderr)
+		return cmdRoll(ctx, args, application, r, stderr)
 	case "rs":
-		return shortRS(ctx, args, application, r, stderr)
-	case "ra":
-		return shortRA(ctx, args, application, r, stderr)
-	case "rc":
-		return shortRC(ctx, "rc", args, application, r, stderr)
+		return cmdRollCompact(ctx, args, application, r, stderr)
+	case "rd":
+		return cmdDefaultRoll(ctx, args, application, r, stderr)
+	case "ra", "rc":
+		// Dice! uses .ra and .rc as aliases for the same check. In D&D mode
+		// both run a d20 check through the rulebook's mechanic.
+		return cmdCheck(ctx, args, application, r, stderr)
+	case "rb", "rp":
+		return cmdBonusPenaltyCheck(ctx, name, args, application, r, stderr)
 	case "sc":
-		return shortRC(ctx, "sc", args, application, r, stderr)
+		return cmdResourceCheck(ctx, "sc", args, application, r, stderr)
 	case "st":
-		return shortST(ctx, args, application, r, stderr)
+		return cmdSheet(ctx, args, application, r, stderr)
 	case "pc":
-		return shortPC(ctx, args, application, r, stdin, stderr)
-	case "rules":
-		return shortRules(ctx, args, application, r, stderr)
-	case "sys":
-		return shortSYS(ctx, args, application, r, stderr)
-	case "dv":
-		return shortDV(ctx, args, application, r, stderr)
-	case "dmg":
-		return shortDMG(ctx, args, application, r, stderr)
-	case "opp":
-		return shortOPP(ctx, args, application, r, stderr)
+		return cmdPC(ctx, args, application, r, stdin, stderr)
+	case "rav":
+		return cmdOpposed(ctx, args, application, r, stderr)
 	case "tb":
-		return shortTB(ctx, args, application, r, stderr)
+		return cmdTable(ctx, args, application, r, stderr)
+	case "rule":
+		return cmdRule(ctx, args, application, r, stderr)
+	case "game":
+		return cmdGame(ctx, args, application, r, stderr)
+	case "log":
+		return cmdLog(ctx, args, application, r, stderr)
 	case "set":
-		return shortSet(ctx, args, application, r, stderr)
+		return cmdSet(ctx, args, application, r, stderr)
 	case "ti":
-		return shortTable(ctx, "temporary_insanity", args, application, r, stderr)
+		return cmdRandomTable(ctx, "temporary_insanity", args, application, r, stderr)
 	case "li":
-		return shortTable(ctx, "summary_insanity", args, application, r, stderr)
+		return cmdRandomTable(ctx, "summary_insanity", args, application, r, stderr)
 	case "ak":
-		return shortChoice(ctx, args, application, r, stderr)
+		return cmdChoice(ctx, args, application, r, stderr)
 	case "name":
-		return shortName(ctx, args, application, r, stderr)
+		return cmdName(ctx, args, application, r, stderr)
 	case "en":
-		return shortGrowth(ctx, args, application, r, stderr)
+		return cmdGrowth(ctx, args, application, r, stderr)
 	case "w":
-		return shortPool(ctx, args, false, application, r, stderr)
+		return cmdPool(ctx, args, false, application, r, stderr)
 	case "ww":
-		return shortPool(ctx, args, true, application, r, stderr)
+		return cmdPool(ctx, args, true, application, r, stderr)
 	case "ri":
-		return shortInitiative(ctx, args, application, r, stderr)
+		return cmdInitiative(ctx, args, application, r, stderr)
 	case "init":
-		return shortInitiativeList(ctx, args, application, r, stderr)
+		return cmdInitiativeList(ctx, args, application, r, stderr)
 	case "deck":
-		return shortDeck(ctx, args, application, r, stderr)
+		return cmdDeck(ctx, args, application, r, stderr)
 	case "draw":
-		return shortDraw(ctx, args, application, r, stderr)
-	case "rh":
-		return PrintError(stderr, apperr.New("cli.short", apperr.InvalidArgument,
-			"暗骰（rh）需要聊天平台适配器，CLI 暂不支持"))
+		return cmdDraw(ctx, args, application, r, stderr)
+	case "h", "rh":
+		return PrintError(stderr, apperr.New("cli.command", apperr.InvalidArgument,
+			"暗骰（h/rh）需要聊天平台适配器，CLI 暂不支持"))
+	case "rah", "rch":
+		return PrintError(stderr, apperr.New("cli.command", apperr.InvalidArgument,
+			"暗骰检定（rah/rch）需要聊天平台适配器，CLI 暂不支持"))
 	case "drawh":
-		return PrintError(stderr, apperr.New("cli.short", apperr.InvalidArgument,
+		return PrintError(stderr, apperr.New("cli.command", apperr.InvalidArgument,
 			"暗抽（drawh）需要聊天平台适配器，CLI 暂不支持"))
 	default:
-		fmt.Fprintf(stderr, "未知指令：%s（可用：%s）\n", name, shortCommandList())
+		fmt.Fprintf(stderr, "未知指令：%s（可用：%s）\n", name, commandNameList())
 		return 2
 	}
 }
 
-// shortCommandList renders the known short command names for the error
+// commandNameList renders the known command names for the error
 // message (sorted, so it does not depend on map order).
-func shortCommandList() string {
-	names := make([]string, 0, len(shortCommands))
-	for name := range shortCommands {
+func commandNameList() string {
+	names := make([]string, 0, len(commandNames))
+	for name := range commandNames {
 		names = append(names, name)
 	}
 	sort.Strings(names)
@@ -393,7 +400,7 @@ func stripDifficulty(args []string, diffs []engine.DifficultyInfo) (string, []st
 	return "", args
 }
 
-func shortR(ctx context.Context, args []string, a *app.App, r *Renderer, stderr io.Writer) int {
+func cmdRoll(ctx context.Context, args []string, a *app.App, r *Renderer, stderr io.Writer) int {
 	if len(args) == 0 {
 		// A bare `r` rolls the default die (d100 unless configured).
 		sides, err := a.DefaultDieSides(ctx, currentCharacter(ctx))
@@ -409,7 +416,11 @@ func shortR(ctx context.Context, args []string, a *app.App, r *Renderer, stderr 
 		}
 		return 0
 	}
-	res, err := a.RollStatement(ctx, args[0])
+	expr, err := a.ExpandDamageBonus(ctx, args[0], currentCharacter(ctx))
+	if err != nil {
+		return PrintError(stderr, err)
+	}
+	res, err := a.RollStatement(ctx, expr)
 	if err != nil {
 		return PrintError(stderr, err)
 	}
@@ -419,14 +430,18 @@ func shortR(ctx context.Context, args []string, a *app.App, r *Renderer, stderr 
 	return 0
 }
 
-// shortRS is the compact roll alias: only the total is rendered, the JSON
+// cmdRollCompact is the compact roll alias: only the total is rendered, the JSON
 // contract stays the same and just marks the result as not detailed.
-func shortRS(ctx context.Context, args []string, a *app.App, r *Renderer, stderr io.Writer) int {
+func cmdRollCompact(ctx context.Context, args []string, a *app.App, r *Renderer, stderr io.Writer) int {
 	if len(args) < 1 {
 		fmt.Fprintln(stderr, "用法：rs <掷骰语句> [原因文本...]")
 		return 2
 	}
-	res, err := a.RollStatement(ctx, args[0])
+	expr, err := a.ExpandDamageBonus(ctx, args[0], currentCharacter(ctx))
+	if err != nil {
+		return PrintError(stderr, err)
+	}
+	res, err := a.RollStatement(ctx, expr)
 	if err != nil {
 		return PrintError(stderr, err)
 	}
@@ -436,17 +451,49 @@ func shortRS(ctx context.Context, args []string, a *app.App, r *Renderer, stderr
 	return 0
 }
 
-// shortSet configures the default die size used by a bare `r`.
-func shortSet(ctx context.Context, args []string, a *app.App, r *Renderer, stderr io.Writer) int {
+// cmdDefaultRoll is Dice! `.rd`: roll the personal default die, or the die
+// named by an optional face count (`.rd6`).
+func cmdDefaultRoll(ctx context.Context, args []string, a *app.App, r *Renderer, stderr io.Writer) int {
+	if len(args) == 0 {
+		return cmdRoll(ctx, nil, a, r, stderr)
+	}
+	if len(args) != 1 {
+		fmt.Fprintln(stderr, "用法：rd [面数]")
+		return 2
+	}
+	n, err := strconv.Atoi(args[0])
+	if err != nil || n < 1 {
+		fmt.Fprintf(stderr, "默认骰面数必须是正整数，得到 %q\n", args[0])
+		return 2
+	}
+	return cmdRoll(ctx, []string{fmt.Sprintf("d%d", n)}, a, r, stderr)
+}
+
+// cmdSet is Dice!'s shared settings command: a number sets the default die,
+// `list` lists rulebooks and any other single token switches the current
+// game's default rulebook.
+func cmdSet(ctx context.Context, args []string, a *app.App, r *Renderer, stderr io.Writer) int {
 	sides := 0
 	switch len(args) {
 	case 0:
 		// Restore the built-in default.
 	case 1:
+		if args[0] == "list" {
+			if err := r.Systems(a.Registry().List()); err != nil {
+				return PrintError(stderr, err)
+			}
+			return 0
+		}
 		n, err := strconv.Atoi(args[0])
 		if err != nil {
-			fmt.Fprintf(stderr, "默认骰面数必须是整数，得到 %q\n", args[0])
-			return 2
+			view, serr := a.SetGameSystem(ctx, args[0])
+			if serr != nil {
+				return PrintError(stderr, serr)
+			}
+			if err := r.Session(view); err != nil {
+				return PrintError(stderr, err)
+			}
+			return 0
 		}
 		if n < app.MinDefaultDieSides || n > app.MaxDefaultDieSides {
 			fmt.Fprintf(stderr, "默认骰面数必须在 %d–%d 之间\n", app.MinDefaultDieSides, app.MaxDefaultDieSides)
@@ -454,7 +501,7 @@ func shortSet(ctx context.Context, args []string, a *app.App, r *Renderer, stder
 		}
 		sides = n
 	default:
-		fmt.Fprintln(stderr, "用法：set [面数]（省略面数恢复默认）")
+		fmt.Fprintln(stderr, "用法：set [面数]｜set list｜set <规则书>（省略面数恢复默认骰）")
 		return 2
 	}
 	if err := a.SetDefaultDieSides(ctx, sides); err != nil {
@@ -470,7 +517,7 @@ func shortSet(ctx context.Context, args []string, a *app.App, r *Renderer, stder
 	return 0
 }
 
-func shortRA(ctx context.Context, args []string, a *app.App, r *Renderer, stderr io.Writer) int {
+func cmdCheck(ctx context.Context, args []string, a *app.App, r *Renderer, stderr io.Writer) int {
 	fs := flag.NewFlagSet("ra", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	system := fs.String("system", "", "规则书 ID")
@@ -572,6 +619,28 @@ func shortRA(ctx context.Context, args []string, a *app.App, r *Renderer, stderr
 	return 0
 }
 
+// cmdBonusPenaltyCheck implements Dice! `.rb`/`.rp`: a bonus or penalty
+// die applies to the following check. A leading small count is accepted
+// (`.rp2 60`, `.rb 2 侦查`); a lone integer remains the check target so
+// `.rb 60` means one bonus die against 60.
+func cmdBonusPenaltyCheck(ctx context.Context, name string, args []string, a *app.App, r *Renderer, stderr io.Writer) int {
+	if len(args) == 0 {
+		fmt.Fprintf(stderr, "用法：%s [数量] <检定参数...>\n", name)
+		return 2
+	}
+	count := 1
+	checkArgs := args
+	if n, err := strconv.Atoi(args[0]); err == nil && len(args) > 1 && n >= 1 && n <= 9 {
+		count = n
+		checkArgs = args[1:]
+	}
+	mod := fmt.Sprintf("+%d", count)
+	if name == "rp" {
+		mod = fmt.Sprintf("-%d", count)
+	}
+	return cmdCheck(ctx, append(checkArgs, mod), a, r, stderr)
+}
+
 // parseLossPair splits "success/failure" loss specs (e.g. "0/1d10").
 func parseLossPair(s string) (success, failure string, err error) {
 	parts := strings.SplitN(s, "/", 3)
@@ -595,7 +664,7 @@ func parseCurrentAndReason(args []string) (current *int, reason string) {
 	return current, strings.TrimSpace(strings.Join(args, " "))
 }
 
-func shortRC(ctx context.Context, verb string, args []string, a *app.App, r *Renderer, stderr io.Writer) int {
+func cmdResourceCheck(ctx context.Context, verb string, args []string, a *app.App, r *Renderer, stderr io.Writer) int {
 	fs := flag.NewFlagSet(verb, flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	system := fs.String("system", "", "规则书 ID（默认角色所属）")
@@ -608,24 +677,18 @@ func shortRC(ctx context.Context, verb string, args []string, a *app.App, r *Ren
 		return 2
 	}
 
-	checkID, pair := "sanity", ""
+	checkID := "sanity"
 	rest := []string{}
-	switch verb {
-	case "sc":
-		if fs.NArg() < 1 {
-			fmt.Fprintln(stderr, "用法：sc <成功损失>/<失败损失> [当前值] [原因文本...] [--apply]")
-			return 2
-		}
-		pair = fs.Arg(0)
-		rest = fs.Args()[1:]
-	case "rc":
-		if fs.NArg() < 2 {
-			fmt.Fprintln(stderr, "用法：rc <规则书内检定名> <成功损失>/<失败损失> [当前值] [原因文本...] [--apply]")
-			return 2
-		}
-		checkID, pair = fs.Arg(0), fs.Arg(1)
-		rest = fs.Args()[2:]
+	if verb != "sc" {
+		fmt.Fprintln(stderr, "用法：sc <成功损失>/<失败损失> [当前值] [原因文本...] [--apply]")
+		return 2
 	}
+	if fs.NArg() < 1 {
+		fmt.Fprintln(stderr, "用法：sc <成功损失>/<失败损失> [当前值] [原因文本...] [--apply]")
+		return 2
+	}
+	pair := fs.Arg(0)
+	rest = fs.Args()[1:]
 	success, failure, err := parseLossPair(pair)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
@@ -669,9 +732,9 @@ func shortRC(ctx context.Context, verb string, args []string, a *app.App, r *Ren
 	return 0
 }
 
-// shortST handles the sheet commands: show, del, clr, assignments,
+// cmdSheet handles the sheet commands: show, del, clr, assignments,
 // adjustments and macro definitions.
-func shortST(ctx context.Context, args []string, a *app.App, r *Renderer, stderr io.Writer) int {
+func cmdSheet(ctx context.Context, args []string, a *app.App, r *Renderer, stderr io.Writer) int {
 	if len(args) == 0 {
 		c, err := a.GetCharacter(ctx, currentCharacter(ctx))
 		if err != nil {
@@ -744,28 +807,26 @@ func shortST(ctx context.Context, args []string, a *app.App, r *Renderer, stderr
 			return PrintError(stderr, err)
 		}
 		return 0
+	case "derived":
+		// Local extension under Dice!'s .st namespace; Dice!Next recalculates
+		// derived values automatically, while dicegirl still exposes the
+		// rulebook's computed sheet on demand.
+		return cmdDerived(ctx, args[1:], a, r, stderr)
 	}
 
 	// Macro definitions: "&名=表达式" (Dice! `.st &沙漠之鹰=1D10+1D6+3`).
 	if strings.HasPrefix(args[0], app.MacroPrefix) {
-		return shortSetMacro(ctx, args, a, r, stderr)
+		return cmdSetMacro(ctx, args, a, r, stderr)
 	}
 
-	hasSet, hasAdjust := false, false
-	for _, tok := range args {
-		if strings.ContainsAny(tok, "=:") {
-			hasSet = true
-		} else {
-			hasAdjust = true
-		}
-	}
+	setTokens, hasSet, hasAdjust := splitSheetAssignments(args)
 	if hasSet && hasAdjust {
-		fmt.Fprintln(stderr, "不能在同一条 st 中混用 = 赋值与 ± 增减")
+		fmt.Fprintln(stderr, "不能在同一条 st 中混用赋值与 ± 增减")
 		return 2
 	}
 
 	if hasSet {
-		sets, err := parseAssignments(args)
+		sets, err := parseAssignments(setTokens)
 		if err != nil {
 			return PrintError(stderr, err)
 		}
@@ -797,8 +858,8 @@ func shortST(ctx context.Context, args []string, a *app.App, r *Renderer, stderr
 	return 0
 }
 
-// shortSetMacro saves a named dice expression on the current card.
-func shortSetMacro(ctx context.Context, args []string, a *app.App, r *Renderer, stderr io.Writer) int {
+// cmdSetMacro saves a named dice expression on the current card.
+func cmdSetMacro(ctx context.Context, args []string, a *app.App, r *Renderer, stderr io.Writer) int {
 	if len(args) != 1 {
 		fmt.Fprintln(stderr, "用法：st &名=表达式")
 		return 2
@@ -821,8 +882,8 @@ func shortSetMacro(ctx context.Context, args []string, a *app.App, r *Renderer, 
 	return 0
 }
 
-// shortTable rolls a rulebook random table (Dice! `.ti`/`.li`).
-func shortTable(ctx context.Context, tableID string, args []string, a *app.App, r *Renderer, stderr io.Writer) int {
+// cmdRandomTable rolls a rulebook random table (Dice! `.ti`/`.li`).
+func cmdRandomTable(ctx context.Context, tableID string, args []string, a *app.App, r *Renderer, stderr io.Writer) int {
 	fs := flag.NewFlagSet("table", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	system := fs.String("system", "", "规则书 ID（默认角色所属）")
@@ -839,8 +900,8 @@ func shortTable(ctx context.Context, tableID string, args []string, a *app.App, 
 	return 0
 }
 
-// shortChoice manages one round of random choices (Dice! `.ak`).
-func shortChoice(ctx context.Context, args []string, a *app.App, r *Renderer, stderr io.Writer) int {
+// cmdChoice manages one round of random choices (Dice! `.ak`).
+func cmdChoice(ctx context.Context, args []string, a *app.App, r *Renderer, stderr io.Writer) int {
 	if len(args) == 0 {
 		fmt.Fprintln(stderr, "用法：ak new｜ak add <选项...>｜ak del <选项>｜ak get｜ak show｜ak clr")
 		return 2
@@ -916,8 +977,8 @@ func shortChoice(ctx context.Context, args []string, a *app.App, r *Renderer, st
 	}
 }
 
-// shortName generates random names (Dice! `.name`).
-func shortName(ctx context.Context, args []string, a *app.App, r *Renderer, stderr io.Writer) int {
+// cmdName generates random names (Dice! `.name`).
+func cmdName(ctx context.Context, args []string, a *app.App, r *Renderer, stderr io.Writer) int {
 	setID := ""
 	count := 1
 	for _, tok := range args {
@@ -946,8 +1007,8 @@ func shortName(ctx context.Context, args []string, a *app.App, r *Renderer, stde
 	return 0
 }
 
-// shortGrowth runs a skill-growth check (Dice! `.en`).
-func shortGrowth(ctx context.Context, args []string, a *app.App, r *Renderer, stderr io.Writer) int {
+// cmdGrowth runs a skill-growth check (Dice! `.en`).
+func cmdGrowth(ctx context.Context, args []string, a *app.App, r *Renderer, stderr io.Writer) int {
 	fs := flag.NewFlagSet("en", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	system := fs.String("system", "", "规则书 ID（默认角色所属）")
@@ -1009,11 +1070,11 @@ func shortGrowth(ctx context.Context, args []string, a *app.App, r *Renderer, st
 // around the generic dice operators (explode + count).
 const poolSuccessThreshold = 8
 
-// shortPool rolls a dice pool (Dice! `.w`/`.ww`): `[骰子个数]a[加骰参数]`.
+// cmdPool rolls a dice pool (Dice! `.w`/`.ww`): `[骰子个数]a[加骰参数]`.
 // The add parameter is the explode threshold (every die reaching it adds
 // another die); the result counts the dice that reached the success
 // threshold. detailed renders every die instead of the total.
-func shortPool(ctx context.Context, args []string, detailed bool,
+func cmdPool(ctx context.Context, args []string, detailed bool,
 	a *app.App, r *Renderer, stderr io.Writer) int {
 	countExpr, add, err := parsePoolArgs(args)
 	if err != nil {
@@ -1069,9 +1130,9 @@ func parsePoolArgs(args []string) (countExpr string, add int, err error) {
 	return strings.TrimSpace(text), add, nil
 }
 
-// shortInitiative rolls an initiative value and adds it to the current
+// cmdInitiative rolls an initiative value and adds it to the current
 // encounter (Dice! `.ri [±加值|表达式] [名称]`).
-func shortInitiative(ctx context.Context, args []string, a *app.App, r *Renderer, stderr io.Writer) int {
+func cmdInitiative(ctx context.Context, args []string, a *app.App, r *Renderer, stderr io.Writer) int {
 	opts, err := app.ParseInitiativeArgs(args)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
@@ -1101,9 +1162,9 @@ func normalizeInitiativeExpr(expr string) string {
 // initiativeDKRE matches the "2DK" shorthand (roll two, keep the highest).
 var initiativeDKRE = regexp.MustCompile(`(?i)^(\d+)DK$`)
 
-// shortInitiativeList shows or clears the initiative list (Dice! `.init`,
+// cmdInitiativeList shows or clears the initiative list (Dice! `.init`,
 // `.init clr`).
-func shortInitiativeList(ctx context.Context, args []string, a *app.App, r *Renderer, stderr io.Writer) int {
+func cmdInitiativeList(ctx context.Context, args []string, a *app.App, r *Renderer, stderr io.Writer) int {
 	switch {
 	case len(args) == 0 || args[0] == "list":
 		if len(args) > 1 {
@@ -1132,8 +1193,8 @@ func shortInitiativeList(ctx context.Context, args []string, a *app.App, r *Rend
 	}
 }
 
-// shortDeck manages the card decks (Dice! `.deck`).
-func shortDeck(ctx context.Context, args []string, a *app.App, r *Renderer, stderr io.Writer) int {
+// cmdDeck manages the card decks (Dice! `.deck`).
+func cmdDeck(ctx context.Context, args []string, a *app.App, r *Renderer, stderr io.Writer) int {
 	if len(args) == 0 {
 		fmt.Fprintln(stderr, "用法：deck new <名>=<卡面1|卡面2>｜deck set <实例>=<牌堆|range 下限 上限>｜deck show [名]｜deck put <名> <卡面...>｜deck reset <名>｜deck clr")
 		return 2
@@ -1242,9 +1303,9 @@ func shortDeck(ctx context.Context, args []string, a *app.App, r *Renderer, stde
 	}
 }
 
-// shortDraw draws cards from a deck (Dice! `.draw`). Without replacement the
+// cmdDraw draws cards from a deck (Dice! `.draw`). Without replacement the
 // cards move to the discard pile; a trailing "放回" draws with replacement.
-func shortDraw(ctx context.Context, args []string, a *app.App, r *Renderer, stderr io.Writer) int {
+func cmdDraw(ctx context.Context, args []string, a *app.App, r *Renderer, stderr io.Writer) int {
 	if len(args) < 1 {
 		fmt.Fprintln(stderr, "用法：draw <牌堆> [数量] [放回]")
 		return 2
@@ -1281,8 +1342,8 @@ func shortDraw(ctx context.Context, args []string, a *app.App, r *Renderer, stde
 	return 0
 }
 
-// shortCardStats shows the roll statistics of a card (Dice! `.pc stat`).
-func shortCardStats(ctx context.Context, args []string, a *app.App, r *Renderer, stderr io.Writer) int {
+// cmdCardStats shows the roll statistics of a card (Dice! `.pc stat`).
+func cmdCardStats(ctx context.Context, args []string, a *app.App, r *Renderer, stderr io.Writer) int {
 	if len(args) > 0 && args[0] == "clr" {
 		if len(args) > 2 {
 			fmt.Fprintln(stderr, "用法：pc stat clr [名字|id]")
@@ -1332,21 +1393,22 @@ func looksLikeDiceExpression(tok string) bool {
 	return strings.ContainsAny(tok, "dD/")
 }
 
-// shortRules searches the quick-reference dictionary (Dice! `.rules`).
+// cmdRules searches the quick-reference dictionary (Dice!'s rules lookup),
+// exposed here as `rule ref`.
 //
-//	rules <词条>        检索速查词条（可写 "系统:词条"）
-//	rules list          列出所有词条
-//	rules set <系统>    设定优先查询的规则书
-//	rules set           清除偏好
-func shortRules(ctx context.Context, args []string, a *app.App, r *Renderer, stderr io.Writer) int {
+//	rule ref <词条>        检索速查词条（可写 "系统:词条"）
+//	rule ref list          列出所有词条
+//	rule ref set <系统>    设定优先查询的规则书
+//	rule ref set           清除偏好
+func cmdRules(ctx context.Context, args []string, a *app.App, r *Renderer, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "用法：rules <词条>｜rules list｜rules set <系统>｜rules set")
+		fmt.Fprintln(stderr, "用法：rule ref <词条>｜rule ref list｜rule ref set <系统>｜rule ref set")
 		return 2
 	}
 	switch args[0] {
 	case "list":
 		if len(args) != 1 {
-			fmt.Fprintln(stderr, "用法：rules list")
+			fmt.Fprintln(stderr, "用法：rule ref list")
 			return 2
 		}
 		entries, err := a.RuleEntries(ctx)
@@ -1359,7 +1421,7 @@ func shortRules(ctx context.Context, args []string, a *app.App, r *Renderer, std
 		return 0
 	case "set":
 		if len(args) > 2 {
-			fmt.Fprintln(stderr, "用法：rules set <系统>｜rules set")
+			fmt.Fprintln(stderr, "用法：rule ref set <系统>｜rule ref set")
 			return 2
 		}
 		system := ""
@@ -1392,11 +1454,11 @@ func shortRules(ctx context.Context, args []string, a *app.App, r *Renderer, std
 	}
 }
 
-// shortGenerate is the body of the rulebook-declared generation commands:
+// cmdGenerate is the body of the rulebook-declared generation commands:
 // an optional "d" token selects detailed (point-buy) creation, a bare
 // number is the count, and flags may appear anywhere. The system and the
 // variant come from the rulebook that owns the alias.
-func shortGenerate(ctx context.Context, command, usage, systemDefault, variant string, detailed bool,
+func cmdGenerate(ctx context.Context, command, usage, systemDefault, variant string, detailed bool,
 	args []string, a *app.App, r *Renderer, stderr io.Writer) int {
 	fs := flag.NewFlagSet(command, flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -1447,7 +1509,7 @@ func shortGenerate(ctx context.Context, command, usage, systemDefault, variant s
 	return 0
 }
 
-func shortPC(ctx context.Context, args []string, a *app.App, r *Renderer, stdin io.Reader, stderr io.Writer) int {
+func cmdPC(ctx context.Context, args []string, a *app.App, r *Renderer, stdin io.Reader, stderr io.Writer) int {
 	if len(args) == 0 {
 		fmt.Fprintln(stderr, pcUsage)
 		return 2
@@ -1471,7 +1533,7 @@ func shortPC(ctx context.Context, args []string, a *app.App, r *Renderer, stdin 
 		}
 		return 0
 	case "new":
-		return shortPCNew(ctx, args[1:], a, r, stderr)
+		return cmdPCNew(ctx, args[1:], a, r, stderr)
 	case "show":
 		if len(args) > 2 {
 			fmt.Fprintln(stderr, "用法：pc show [名字|id]")
@@ -1515,33 +1577,31 @@ func shortPC(ctx context.Context, args []string, a *app.App, r *Renderer, stdin 
 		}
 		return 0
 	case "use":
-		return shortPCUse(ctx, args[1:], a, r, stderr)
+		return cmdPCUse(ctx, args[1:], a, r, stderr)
 	case "active":
 		if len(args) != 1 {
 			fmt.Fprintln(stderr, "用法：pc active")
 			return 2
 		}
-		return shortPCActive(ctx, a, r, stderr)
+		return cmdPCActive(ctx, a, r, stderr)
 	case "del":
-		return shortPCDelete(ctx, args[1:], a, r, stderr)
+		return cmdPCDelete(ctx, args[1:], a, r, stderr)
 	case "val":
-		return shortPCValidate(ctx, args[1:], a, r, stderr)
+		return cmdPCValidate(ctx, args[1:], a, r, stderr)
 	case "copy":
-		return shortPCCopy(ctx, args[1:], a, r, stderr)
+		return cmdPCCopy(ctx, args[1:], a, r, stderr)
 	case "cpy":
-		return shortPCCopyOnto(ctx, args[1:], a, r, stderr)
+		return cmdPCCopyOnto(ctx, args[1:], a, r, stderr)
 	case "export":
-		return shortPCExport(ctx, args[1:], a, r, stderr)
+		return cmdPCExport(ctx, args[1:], a, r, stderr)
 	case "import":
-		return shortPCImport(ctx, args[1:], a, r, stdin, stderr)
+		return cmdPCImport(ctx, args[1:], a, r, stdin, stderr)
 	case "meta":
-		return shortPCMeta(ctx, args[1:], a, r, stderr)
+		return cmdPCMeta(ctx, args[1:], a, r, stderr)
 	case "redo", "build":
-		return shortPCRebuild(ctx, args, a, r, stderr)
+		return cmdPCRebuild(ctx, args, a, r, stderr)
 	case "stat":
-		return shortCardStats(ctx, args[1:], a, r, stderr)
-	case "rules":
-		return shortRules(ctx, args[1:], a, r, stderr)
+		return cmdCardStats(ctx, args[1:], a, r, stderr)
 	case "clr":
 		if len(args) != 1 {
 			fmt.Fprintln(stderr, "用法：pc clr（销毁全部角色卡）")
@@ -1562,12 +1622,12 @@ func shortPC(ctx context.Context, args []string, a *app.App, r *Renderer, stdin 
 }
 
 // pcUsage is the card-management help line.
-const pcUsage = "用法：pc list｜pc new <名> [K=V...] [--active=false]｜pc show [名字|id]｜pc use <名字|id>｜pc active｜pc nn [名字|id] <新名>｜pc copy <名字|id> <新名>｜pc cpy <目标>=<来源>｜pc del <名字|id]｜pc val [名字|id]｜pc meta <键> [值]｜pc export [名字|id] [--file 路径]｜pc import --file <路径|->｜pc redo [名字|id]｜pc build [名字|id]｜pc stat [名字|id]｜pc clr"
+const pcUsage = "用法：pc list｜pc new <名> [K=V...] [--active=false]｜pc show [名字|id]｜pc use <名字|id>｜pc active｜pc nn [名字|id] <新名>｜pc copy <名字|id> <新名>｜pc cpy <目标>=<来源>｜pc del <名字|id>｜pc val [名字|id]｜pc meta <键> [值]｜pc export [名字|id] [--file 路径]｜pc import --file <路径|->｜pc redo [名字|id]｜pc build [名字|id]｜pc stat [名字|id]｜pc clr"
 
-// shortPCRebuild regenerates a card's attributes (`.pc redo` / `.pc build`).
+// cmdPCRebuild regenerates a card's attributes (`.pc redo` / `.pc build`).
 // The card is addressed by id (the active one by default) and the
 // generation variant can be selected with --variant.
-func shortPCRebuild(ctx context.Context, args []string, a *app.App, r *Renderer, stderr io.Writer) int {
+func cmdPCRebuild(ctx context.Context, args []string, a *app.App, r *Renderer, stderr io.Writer) int {
 	fs := flag.NewFlagSet("pc redo", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	variant := fs.String("variant", "", "生成变体 id（如 6、7；省略用规则书默认）")
