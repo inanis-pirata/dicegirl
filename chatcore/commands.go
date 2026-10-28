@@ -33,6 +33,7 @@ var commandNames = map[string]bool{
 	"w": true, "ww": true,
 	"ri": true, "init": true, "deck": true, "draw": true, "drawh": true,
 	"rav": true, "tb": true,
+	"ds": true,
 	"rule": true, "game": true, "log": true,
 	"help": true, "帮助": true,
 }
@@ -147,6 +148,8 @@ func dispatchCommand(ctx context.Context, name string, args []string,
 		return cmdBonusPenaltyCheck(ctx, name, args, application, r, stderr)
 	case "sc":
 		return cmdResourceCheck(ctx, "sc", args, application, r, stderr)
+	case "ds":
+		return cmdDeathSave(ctx, args, application, r, stderr)
 	case "st":
 		return cmdSheet(ctx, args, application, r, stderr)
 	case "pc":
@@ -164,9 +167,9 @@ func dispatchCommand(ctx context.Context, name string, args []string,
 	case "set":
 		return cmdSet(ctx, args, application, r, stderr)
 	case "ti":
-		return cmdRandomTable(ctx, "temporary_insanity", args, application, r, stderr)
+		return cmdRandomTable(ctx, "ti", args, application, r, stderr)
 	case "li":
-		return cmdRandomTable(ctx, "summary_insanity", args, application, r, stderr)
+		return cmdRandomTable(ctx, "li", args, application, r, stderr)
 	case "ak":
 		return cmdChoice(ctx, args, application, r, stderr)
 	case "name":
@@ -526,14 +529,14 @@ func cmdCheck(ctx context.Context, args []string, a *app.App, r *Renderer, stder
 	if err := parseSub(fs, args); err != nil {
 		return 2
 	}
+	explicit := *characterID != ""
 	useDefaultCharacter(ctx, characterID)
-	if *characterID != "" {
-		id, err := cardRef(ctx, a, *characterID)
-		if err != nil {
-			return PrintError(stderr, err)
-		}
-		*characterID = id
+	tgt, err := flagTarget(ctx, a, *characterID, explicit)
+	if err != nil {
+		return PrintError(stderr, err)
 	}
+	*characterID = tgt.CardID
+	ctx = withTarget(ctx, tgt)
 	positionals := fs.Args()
 	// Difficulty keywords are rulebook data (困难/极难/自动成功), so the
 	// book must be resolvable before token parsing.
@@ -586,17 +589,17 @@ func cmdCheck(ctx context.Context, args []string, a *app.App, r *Renderer, stder
 		// when given, only labels the roll and must still resolve.
 		target.Value, target.Explicit = spec.target, true
 		if spec.name != "" {
-			if _, _, rerr := a.ResolveCheckName(ctx, *system, *characterID, spec.name); rerr != nil {
+			if _, _, _, rerr := a.ResolveCheckName(ctx, *system, *characterID, spec.name); rerr != nil {
 				return PrintError(stderr, rerr)
 			}
 			target.Skill = spec.name
 		}
 	} else {
-		skillID, attrID, rerr := a.ResolveCheckName(ctx, *system, *characterID, spec.name)
+		skillID, attrID, resourceID, rerr := a.ResolveCheckName(ctx, *system, *characterID, spec.name)
 		if rerr != nil {
 			return PrintError(stderr, rerr)
 		}
-		target.Skill, target.Attr = skillID, attrID
+		target.Skill, target.Attr, target.Resource = skillID, attrID, resourceID
 	}
 
 	if target.Repeat > 1 {
@@ -677,8 +680,6 @@ func cmdResourceCheck(ctx context.Context, verb string, args []string, a *app.Ap
 		return 2
 	}
 
-	checkID := "sanity"
-	rest := []string{}
 	if verb != "sc" {
 		fmt.Fprintln(stderr, "用法：sc <成功损失>/<失败损失> [当前值] [原因文本...] [--apply]")
 		return 2
@@ -688,7 +689,7 @@ func cmdResourceCheck(ctx context.Context, verb string, args []string, a *app.Ap
 		return 2
 	}
 	pair := fs.Arg(0)
-	rest = fs.Args()[1:]
+	rest := fs.Args()[1:]
 	success, failure, err := parseLossPair(pair)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
@@ -702,13 +703,19 @@ func cmdResourceCheck(ctx context.Context, verb string, args []string, a *app.Ap
 		}
 		override = current
 	}
+	explicit := *characterID != ""
 	useDefaultCharacter(ctx, characterID)
-	if *characterID != "" {
-		id, err := cardRef(ctx, a, *characterID)
-		if err != nil {
-			return PrintError(stderr, err)
-		}
-		*characterID = id
+	tgt, err := flagTarget(ctx, a, *characterID, explicit)
+	if err != nil {
+		return PrintError(stderr, err)
+	}
+	*characterID = tgt.CardID
+	ctx = withTarget(ctx, tgt)
+	// The check the verb addresses is rulebook data (command_bindings),
+	// never a hard-coded id.
+	checkID, err := a.ResourceCheckBinding(ctx, *system, *characterID, verb)
+	if err != nil {
+		return PrintError(stderr, err)
 	}
 
 	applied := *apply || autoApplyFromContext(ctx)
@@ -812,6 +819,11 @@ func cmdSheet(ctx context.Context, args []string, a *app.App, r *Renderer, stder
 		// derived values automatically, while dicegirl still exposes the
 		// rulebook's computed sheet on demand.
 		return cmdDerived(ctx, args[1:], a, r, stderr)
+	case "alloc":
+		// Local extension under Dice!'s .st namespace: the creation
+		// skill-point pools (Dice! leaves skill distribution to manual st
+		// assignments; dicegirl tracks the pools the rulebook declares).
+		return cmdSkillAlloc(ctx, args[1:], a, r, stderr)
 	}
 
 	// Macro definitions: "&名=表达式" (Dice! `.st &沙漠之鹰=1D10+1D6+3`).
@@ -882,13 +894,18 @@ func cmdSetMacro(ctx context.Context, args []string, a *app.App, r *Renderer, st
 	return 0
 }
 
-// cmdRandomTable rolls a rulebook random table (Dice! `.ti`/`.li`).
-func cmdRandomTable(ctx context.Context, tableID string, args []string, a *app.App, r *Renderer, stderr io.Writer) int {
+// cmdRandomTable rolls the table a chat verb (ti/li) is bound to in the
+// applicable rulebook (command_bindings; the Dice! 疯狂表 aliases).
+func cmdRandomTable(ctx context.Context, verb string, args []string, a *app.App, r *Renderer, stderr io.Writer) int {
 	fs := flag.NewFlagSet("table", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	system := fs.String("system", "", "规则书 ID（默认角色所属）")
 	if err := parseSub(fs, args); err != nil {
 		return 2
+	}
+	tableID, err := a.TableBinding(ctx, *system, verb)
+	if err != nil {
+		return PrintError(stderr, err)
 	}
 	res, err := a.RollTable(ctx, *system, tableID)
 	if err != nil {
@@ -1016,14 +1033,14 @@ func cmdGrowth(ctx context.Context, args []string, a *app.App, r *Renderer, stde
 	if err := parseSub(fs, args); err != nil {
 		return 2
 	}
+	explicit := *characterID != ""
 	useDefaultCharacter(ctx, characterID)
-	if *characterID != "" {
-		id, err := cardRef(ctx, a, *characterID)
-		if err != nil {
-			return PrintError(stderr, err)
-		}
-		*characterID = id
+	tgt, err := flagTarget(ctx, a, *characterID, explicit)
+	if err != nil {
+		return PrintError(stderr, err)
 	}
+	*characterID = tgt.CardID
+	ctx = withTarget(ctx, tgt)
 	positional := fs.Args()
 	if len(positional) < 1 {
 		fmt.Fprintln(stderr, "用法：en <技能/属性名> [目标值] [原因文本...]")

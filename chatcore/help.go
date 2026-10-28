@@ -17,12 +17,14 @@ const HelpText = `🎲 dicegirl 指令速查（指令前缀 .。!！ 可省略�
 
 检定与资源
   ra 心理学            技能检定；rc 是同一检定的 Dice! 别名
+  ra 理智              资源轨检定（名字/难度/奖励骰均可用）
   ra 困难 心理学        困难/极难/自动成功（由规则书声明）
   ra 心理学+2          奖励骰；-1 惩罚骰
   rb 心理学 / rp2 60   奖励骰 / 2 个惩罚骰
   ra 体质*5            目标值算式
   ra 3#心理学          连扔 3 次
-  rav 60 55            对抗检定
+  rav 侦查 60          对抗检定（名字或数值）
+  ds / ds reset        死亡豁免（5e；掷 d20 并记录成功/失败计数）
   sc 1d10/1d100        理智损失（机器人默认写回）
   en 心理学            成长检定（自动写卡）
 
@@ -32,10 +34,13 @@ const HelpText = `🎲 dicegirl 指令速查（指令前缀 .。!！ 可省略�
   pc nn 新名 / pc copy 旧 新 / pc cpy 目标=来源
   pc redo / pc stat / pc clr / pc val
   st 力量60 侦查50        属性/技能赋值（= 可省略）
-  st 理智-1d6            增减
+  st san=40              资源轨赋值（设当前值）
+  st 理智-1d6            增减（键可用轨道名：理智/HP/SAN...）
   st show [键] / st del 键 / st clr
   st &沙漠之鹰=1d10+1d6+3   保存掷骰宏
   st derived [--init]     派生数值（HP/MP/理智轨）
+  st alloc                技能加点池（作成后分配职业/兴趣点数）
+  st alloc 职业 侦查+40    加点（-退点；点数须为整数；clr 重置）
 
 人物作成（别名由规则书声明）
   coc / coc6 / coc7 / cocd / coc 10   CoC 建卡
@@ -71,8 +76,8 @@ const HelpText = `🎲 dicegirl 指令速查（指令前缀 .。!！ 可省略�
   draw 牌堆 [3] [放回]         抽牌（默认进弃牌堆；放回=抽后放回）
   drawh 牌堆 [3]              暗抽：结果只私信抽牌人（仅机器人）
   ak add 选项... / ak get / ak show / ak clr   随机抉择
-  ti / li                    临时/总结性疯狂表
-  tb 表id / tb list          规则书随机表
+  ti / li                    疯狂表（由规则书 command_bindings 绑定）
+  tb 表名|表id / tb list     规则书随机表
   name [cn|jp|en] [数量]      随机姓名
   set [面数] / set list / set 规则书   默认骰面数 / 规则书列表与切换
 
@@ -81,6 +86,8 @@ const HelpText = `🎲 dicegirl 指令速查（指令前缀 .。!！ 可省略�
   rule ref 词条 / rule ref list / rule ref set 系统   规则速查
   rule show all|sections|show <段> <id> / rule new <新ID> --from <基础规则书>
   rule patch '<JSON>' / rule patch --file <路径>     修改 house rules 并热更新
+  rule add --file <规则书.yaml> [--force]   安装自定义规则书（QQ：先发文件再 rule add）
+  rule del <id>                     卸载用户规则书（内置或在用规则书拒绝删除）
   h/rh 3d6 / h/rh .ra 心理学   暗骰：结果只私信给你（首次按提示完成绑定）
   rah 心理学 / rch 心理学      暗骰检定：结果只私信给你
   ob join / ob exit / ob list / ob on / ob off   暗骰围观（仅机器人）

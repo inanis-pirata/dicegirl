@@ -2,10 +2,8 @@ package chatcore
 
 import (
 	"context"
-	"strings"
 
 	"dicegirl/internal/app"
-	"dicegirl/internal/apperr"
 )
 
 // cardRef resolves a card reference typed by a player. Players normally use
@@ -18,47 +16,30 @@ import (
 //
 // An empty reference means the active card and resolves to "", letting the
 // app layer apply its own active-card rule.
+//
+// The tiers themselves live in resolveTargetRef (chatcore/target.go) so the
+// "@名字" path and the "--character" path share one vocabulary; this wrapper
+// keeps the id-only signature used across the command layer and by adapters.
+//
+// 🔴 It must never consult the message's platform mentions (C1). Every caller
+// of cardRef is a positional name: `.pc show 张三`, `.pc tag 张三`, `.pc del`,
+// `.st show/del 张三`. If cardRef resolved through a mention hint first, then in
+// a group where two cards share the name 张三, `.pc show 张三` would stop
+// reporting "角色名 张三 对应多张卡，请改用 ID" and silently show whichever of
+// them was @-mentioned — note that app.CreateCharacter does not refuse
+// duplicate names, so this is reachable, not theoretical. Mention resolution
+// belongs to resolveTargetWith, where the token shape says it is a mention.
+func cardRef(ctx context.Context, a *app.App, ref string) (string, error) {
+	t, err := resolveTargetRef(ctx, a, ref)
+	if err != nil {
+		return "", err
+	}
+	return t.CardID, nil
+}
+
 // ResolveCardRef resolves a player-typed card reference (id, exact name or
 // case-insensitive name) to a card id. Adapters use it to validate a card
 // before remembering a member's binding.
 func ResolveCardRef(ctx context.Context, a *app.App, ref string) (string, error) {
 	return cardRef(ctx, a, ref)
-}
-
-func cardRef(ctx context.Context, a *app.App, ref string) (string, error) {
-	ref = strings.TrimSpace(ref)
-	if ref == "" {
-		return "", nil
-	}
-	chars, err := a.ListCharacters(ctx)
-	if err != nil {
-		return "", err
-	}
-	for _, c := range chars {
-		if c.ID == ref {
-			return c.ID, nil
-		}
-	}
-	var exact, folded []string
-	for _, c := range chars {
-		switch {
-		case c.Name == ref:
-			exact = append(exact, c.ID)
-		case strings.EqualFold(c.Name, ref):
-			folded = append(folded, c.ID)
-		}
-	}
-	for _, ids := range [][]string{exact, folded} {
-		switch len(ids) {
-		case 0:
-			continue
-		case 1:
-			return ids[0], nil
-		default:
-			return "", apperr.New("cli.cardRef", apperr.InvalidArgument,
-				"角色名 "+ref+" 对应多张卡，请改用 ID")
-		}
-	}
-	return "", apperr.New("cli.cardRef", apperr.NotFound,
-		"找不到角色："+ref+"（可用 pc list 查看）")
 }

@@ -66,6 +66,19 @@ type execOptions struct {
 	// logPrefix is prepended to the command line recorded in a play log. The
 	// QQ adapter uses it to mark hidden rolls.
 	logPrefix string
+	// target is the resolved "which card" of this execution. Commands read it
+	// through currentCharacter; the app layer reads it from ctx (T08).
+	target app.TargetSet
+	// mentions are the platform @-mentions the adapter saw in the message.
+	// The text form ("@名字") is only a fallback; adapters hand over ids.
+	mentions []MentionHint
+	// botIdentities are the bot's own openid and nickname. A token naming the
+	// bot is dropped from the arguments (layer 1b), never passed through: group
+	// platforms put the bot's own mention in every message.
+	botIdentities []string
+	// aliasLookup is the target ladder's fifth rung (a player-defined
+	// alternate card name). Empty unless an adapter installs one.
+	aliasLookup TargetAliasLookup
 }
 
 // WithAutoApply turns on implicit --apply for resource checks.
@@ -113,6 +126,56 @@ func WithLogPrefix(prefix string) Option {
 	return func(o *execOptions) { o.logPrefix = prefix }
 }
 
+// WithTarget selects the card this execution addresses, as if the message had
+// named it. It delegates to WithTargets so the multi-target extension needs no
+// second option.
+func WithTarget(t app.Target) Option {
+	return WithTargets([]app.Target{t})
+}
+
+// WithTargets selects the cards this execution addresses, in order.
+func WithTargets(targets []app.Target) Option {
+	return func(o *execOptions) {
+		if len(targets) == 0 {
+			o.target = app.TargetSet{}
+			return
+		}
+		cp := make([]app.Target, len(targets))
+		copy(cp, targets)
+		o.target = app.TargetSet{Primary: cp[0], Targets: cp}
+	}
+}
+
+// WithBotIdentities tells the resolver which mention tokens belong to the bot
+// itself, so a text "@骰娘" does not reach a command as a stray token (layer
+// 1b). Group adapters pass the bot's nickname; without it such a token is
+// treated as a target reference and reported. Platform placeholders are gated
+// separately (placeholdersEnabled).
+func WithBotIdentities(ids []string) Option {
+	return func(o *execOptions) {
+		cp := make([]string, len(ids))
+		copy(cp, ids)
+		o.botIdentities = cp
+	}
+}
+
+// WithMentions hands over the platform @-mentions of the message so the
+// resolver can map a member to a card without relying on the text form.
+func WithMentions(mentions []MentionHint) Option {
+	return func(o *execOptions) {
+		cp := make([]MentionHint, len(mentions))
+		copy(cp, mentions)
+		o.mentions = cp
+	}
+}
+
+// WithTargetAliases installs the alias vocabulary target resolution uses as
+// its fifth rung. No command writes aliases yet, so adapters only install it
+// once alias storage exists; without it the rung is skipped entirely.
+func WithTargetAliases(lookup TargetAliasLookup) Option {
+	return func(o *execOptions) { o.aliasLookup = lookup }
+}
+
 // notifyGameOver fires the adapter's game-reset hook.
 func notifyGameOver(ctx context.Context, tableID string) {
 	if o, _ := ctx.Value(execOptionsKey{}).(execOptions); o.gameOver != nil {
@@ -157,10 +220,61 @@ func autoApplyFromContext(ctx context.Context) bool {
 }
 
 // currentCharacter is the card reference commands use when none is given:
-// the caller-supplied default, or "" for the app's active-card rule.
+// the resolved target of this execution, then the caller-supplied default,
+// then "" for the app's active-card rule.
 func currentCharacter(ctx context.Context) string {
+	if t := app.TargetFrom(ctx); t.CardID != "" {
+		return t.CardID
+	}
 	o, _ := ctx.Value(execOptionsKey{}).(execOptions)
 	return o.defaultCharacter
+}
+
+// withTarget records the resolved target in both places that consume it: the
+// execution options (currentCharacter) and the context value the app layer
+// reads for permission checks (T08).
+func withTarget(ctx context.Context, t app.Target) context.Context {
+	o, _ := ctx.Value(execOptionsKey{}).(execOptions)
+	o.target = app.TargetSet{Primary: t, Targets: []app.Target{t}}
+	ctx = withExecOptions(ctx, o)
+	return app.WithTargets(ctx, []app.Target{t})
+}
+
+// flagTarget resolves a "--character" value. explicit distinguishes a value
+// the user wrote from one the adapter filled in from its member binding, so
+// the permission layer can tell "named" from "bound".
+//
+// An empty reference is not a target the user named: it stays the fallback
+// rung (SourceActive, no card id) so the app layer keeps applying its own
+// active-card rule, exactly as before target resolution existed.
+func flagTarget(ctx context.Context, a *app.App, ref string, explicit bool) (app.Target, error) {
+	// A target already resolved for this execution — an "@名字" the dispatcher
+	// stripped, or a target an adapter supplied — is the card the user named.
+	// It reaches this function through the default-character path, so it must
+	// keep its Kind/Source instead of being re-labelled as a flag.
+	if prev := app.TargetFrom(ctx); prev.CardID != "" && prev.CardID == ref {
+		return prev, nil
+	}
+	// A name typed as a flag is never a mention, so this uses the name ladder
+	// only: a stray platform hint in the same message cannot hijack it.
+	t, err := resolveTargetRef(ctx, a, ref)
+	if err != nil {
+		return app.Target{}, err
+	}
+	if t.CardID != "" {
+		t.Kind = app.KindFlag
+		if explicit {
+			t.Source = app.SourceExplicit
+		} else {
+			t.Source = app.SourceBound
+		}
+	}
+	// C12: the conflict check runs before any empty-reference path can return,
+	// because "@A ... --character B" must never silently prefer the flag.
+	if err := checkTargetConflict(ctx, t); err != nil {
+		return app.Target{}, err
+	}
+	return t, nil
 }
 
 // notifyCardCreated fires the adapter's new-card hook (generation / pc new
@@ -182,6 +296,9 @@ func Execute(ctx context.Context, a *app.App, stdin io.Reader, stdout, stderr io
 		opt(&eo)
 	}
 	ctx = withExecOptions(ctx, eo)
+	if len(eo.target.Targets) > 0 {
+		ctx = app.WithTargets(ctx, eo.target.Targets)
+	}
 	// Every command runs against the scope's active table. The resolution
 	// seeds the implicit default table on a fresh root, so app code can
 	// assume the table exists.
@@ -229,6 +346,18 @@ func Execute(ctx context.Context, a *app.App, stdin io.Reader, stdout, stderr io
 			args, a, r, stderr))
 	}
 	if isCommandName(name) || prefixed {
+		// Resolve the target before the command sees its arguments, so no
+		// command can swallow a target token as free text (reason, label).
+		targets, rest, terr := ResolveTarget(ctx, a, name, args)
+		if terr != nil {
+			return finish(PrintError(stderr, terr))
+		}
+		args = rest
+		if len(targets.Targets) > 0 {
+			eo.target = targets
+			ctx = withExecOptions(ctx, eo)
+			ctx = app.WithTargets(ctx, targets.Targets)
+		}
 		return finish(dispatchCommand(ctx, name, args, a, r, stdin, stderr))
 	}
 	return Unrecognized

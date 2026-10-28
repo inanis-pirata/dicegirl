@@ -17,27 +17,37 @@ import (
 // --- raw rulebook schema (decoded strictly from YAML) ---
 
 type rawBook struct {
-	SchemaVersion  string                      `yaml:"schema_version"`
-	ID             string                      `yaml:"id"`
-	Name           string                      `yaml:"name"`
-	SystemVersion  string                      `yaml:"system_version"`
-	RulesVersion   string                      `yaml:"rules_version"`
-	Description    string                      `yaml:"description"`
-	Default        bool                        `yaml:"default"`
-	Commands       []string                    `yaml:"commands"`
-	Attributes     []AttributeDef              `yaml:"attributes"`
-	Skills         map[string]rawSkill         `yaml:"skills"`
-	Limits         rawLimits                   `yaml:"limits"`
-	Mechanic       rawMechanic                 `yaml:"mechanic"`
-	Checks         rawChecks                   `yaml:"checks"`
-	Opposed        rawOpposed                  `yaml:"opposed"`
-	DamageBonus    *rawDamageBonus             `yaml:"damage_bonus"`
-	Derived        rawDerived                  `yaml:"derived"`
-	ResourceChecks map[string]rawResourceCheck `yaml:"resource_checks"`
-	Tables         []rawTable                  `yaml:"tables"`
-	GrowthChecks   *rawGrowthChecks            `yaml:"growth_checks"`
-	Generation     *rawGeneration              `yaml:"generation"`
-	Rules          []rawRuleEntry              `yaml:"rules"`
+	SchemaVersion   string                       `yaml:"schema_version"`
+	ID              string                       `yaml:"id"`
+	Name            string                       `yaml:"name"`
+	SystemVersion   string                       `yaml:"system_version"`
+	RulesVersion    string                       `yaml:"rules_version"`
+	Description     string                       `yaml:"description"`
+	Default         bool                         `yaml:"default"`
+	Commands        []string                     `yaml:"commands"`
+	Attributes      []AttributeDef               `yaml:"attributes"`
+	Skills          map[string]rawSkill          `yaml:"skills"`
+	Limits          rawLimits                    `yaml:"limits"`
+	Mechanic        rawMechanic                  `yaml:"mechanic"`
+	Checks          rawChecks                    `yaml:"checks"`
+	Opposed         rawOpposed                   `yaml:"opposed"`
+	DamageBonus     *rawDamageBonus              `yaml:"damage_bonus"`
+	Derived         rawDerived                   `yaml:"derived"`
+	ResourceChecks  map[string]rawResourceCheck  `yaml:"resource_checks"`
+	Tables          []rawTable                   `yaml:"tables"`
+	GrowthChecks    *rawGrowthChecks             `yaml:"growth_checks"`
+	DeathSave       *rawDeathSave                `yaml:"death_save"`
+	Generation      *rawGeneration               `yaml:"generation"`
+	Rules           []rawRuleEntry               `yaml:"rules"`
+	CommandBindings map[string]rawCommandBinding `yaml:"command_bindings"`
+}
+
+// rawCommandBinding binds one chat verb (sc/ti/li, the Dice! convention) to
+// the rulebook target it invokes. Exactly one target field is set; the
+// target ids are validated at compile time.
+type rawCommandBinding struct {
+	ResourceCheck string `yaml:"resource_check"`
+	Table         string `yaml:"table"`
 }
 
 // rawRuleEntry is one quick-reference entry of the rulebook.
@@ -75,6 +85,11 @@ type rawMechanic struct {
 	BonusKeep   string `yaml:"bonus_keep"`
 	PenaltyKeep string `yaml:"penalty_keep"`
 	Label       string `yaml:"label"`
+	// BonusLabel/PenaltyLabel rename the bonus/penalty explanation for books
+	// where the mechanic has a rules-native name: D&D 5e's "keep the higher
+	// of two d20s" is "优势", not "奖励骰". Empty falls back to 奖励骰/惩罚骰.
+	BonusLabel   string `yaml:"bonus_label"`
+	PenaltyLabel string `yaml:"penalty_label"`
 }
 
 type rawLevel struct {
@@ -139,8 +154,13 @@ type rawSwitchCase struct {
 
 type rawVitals struct {
 	Resource string `yaml:"resource"`
-	Max      string `yaml:"max"`
-	Initial  string `yaml:"initial"`
+	// Name and Aliases name the resource track for players (理智, SAN):
+	// they are part of the sheet vocabulary the name-resolution ladder
+	// exposes. Optional: an unnamed track still resolves by its raw id.
+	Name    string   `yaml:"name"`
+	Aliases []string `yaml:"aliases"`
+	Max     string   `yaml:"max"`
+	Initial string   `yaml:"initial"`
 }
 
 type rawInitAttr struct {
@@ -167,6 +187,19 @@ type rawResourceCheck struct {
 type rawClamp struct {
 	Min *int `yaml:"min"`
 	Max *int `yaml:"max"`
+}
+
+// rawDeathSave declares the death-saving-throw parameters (T17b). The book
+// carries only the numbers; the success/failure counters live on the
+// character (Character.Metadata), because they are per-character state, not
+// rules. Zero values keep the 5e defaults so a book may write the block with
+// only the fields it wants to change.
+type rawDeathSave struct {
+	Threshold       int `yaml:"threshold"`        // roll >= threshold: one success (5e: 10)
+	SuccessesNeeded int `yaml:"successes_needed"` // reaching it stabilises (5e: 3)
+	FailuresAllowed int `yaml:"failures_allowed"` // reaching it dies (5e: 3)
+	CritValue       int `yaml:"crit_value"`       // natural roll: restore 1 HP, clear counters (5e: 20)
+	CritFailValue   int `yaml:"critfail_value"`   // natural roll: two failures at once (5e: 1)
 }
 
 // ParseBook decodes and compiles one rulebook. Strict field checking makes
@@ -391,6 +424,31 @@ func (b *Book) compile(raw *rawBook) error {
 		b.resChecks[id] = rc
 	}
 
+	// Resource names close the sheet-vocabulary ladder (attributes, then
+	// skills, then resource tracks). Vitals names and aliases come first,
+	// then the raw track id, then every resource_check label (the legacy
+	// place a track could be named).
+	b.resNames = map[string]string{}
+	for _, v := range b.vitals {
+		if err := b.registerResourceName(op, v.name, v.resource, "vitals "+v.resource); err != nil {
+			return err
+		}
+		for _, alias := range v.aliases {
+			if err := b.registerResourceName(op, alias, v.resource, "vitals "+v.resource); err != nil {
+				return err
+			}
+		}
+		if err := b.registerResourceName(op, v.resource, v.resource, "vitals "+v.resource); err != nil {
+			return err
+		}
+	}
+	for _, id := range resIDs {
+		rc := b.resChecks[id]
+		if err := b.registerResourceName(op, rc.label, rc.resource, "resource_check "+id); err != nil {
+			return err
+		}
+	}
+
 	// Random tables (game content such as the CoC7 insanity tables).
 	tables, err := compileTables(op, raw.Tables)
 	if err != nil {
@@ -398,12 +456,53 @@ func (b *Book) compile(raw *rawBook) error {
 	}
 	b.tables = tables
 
+	// Chat-verb bindings (sc/ti/li): targets are declared rulebook ids.
+	if err := b.compileCommandBindings(op, raw.CommandBindings); err != nil {
+		return err
+	}
+
 	// Growth checks (skill improvement). Overrides reference declared
 	// skills/characteristics, so they compile after the vocabulary.
 	if raw.GrowthChecks != nil {
 		if err := b.compileGrowthChecks(op, *raw.GrowthChecks); err != nil {
 			return err
 		}
+	}
+
+	// Death saves (T17b): parameters only, zero values get the 5e defaults.
+	if raw.DeathSave != nil {
+		ds := raw.DeathSave
+		c := &compiledDeathSave{
+			Threshold:       ds.Threshold,
+			SuccessesNeeded: ds.SuccessesNeeded,
+			FailuresAllowed: ds.FailuresAllowed,
+			CritValue:       ds.CritValue,
+			CritFailValue:   ds.CritFailValue,
+		}
+		if c.Threshold <= 0 {
+			c.Threshold = 10
+		}
+		if c.SuccessesNeeded <= 0 {
+			c.SuccessesNeeded = 3
+		}
+		if c.FailuresAllowed <= 0 {
+			c.FailuresAllowed = 3
+		}
+		if c.CritValue <= 0 {
+			c.CritValue = 20
+		}
+		if c.CritFailValue <= 0 {
+			c.CritFailValue = 1
+		}
+		if c.CritValue == c.CritFailValue {
+			return apperr.New(op, apperr.ConfigInvalid,
+				"death_save.crit_value and critfail_value must differ")
+		}
+		if c.Threshold > c.CritValue {
+			return apperr.New(op, apperr.ConfigInvalid,
+				"death_save.threshold cannot exceed crit_value")
+		}
+		b.deathSave = c
 	}
 
 	// Character generation (rolled and point-buy methods, variants).
@@ -439,6 +538,69 @@ func (b *Book) compileRules(op string, raw []rawRuleEntry) error {
 			Keywords: append([]string(nil), r.Keywords...),
 			Text:     r.Text,
 		})
+	}
+	return nil
+}
+
+// registerResourceName adds one typing name for a resource track to the
+// name index. Duplicate names inside the resource namespace are a config
+// error; cross-kind collisions (an attribute or skill with the same name)
+// are resolved by the fixed ladder precedence, not here.
+func (b *Book) registerResourceName(op, name, resource, where string) error {
+	key := strings.ToLower(strings.TrimSpace(name))
+	if key == "" {
+		return nil
+	}
+	if other, dup := b.resNames[key]; dup && other != resource {
+		return apperr.New(op, apperr.ConfigInvalid,
+			"duplicate resource name "+name+" ("+where+" and "+other+")")
+	}
+	b.resNames[key] = resource
+	return nil
+}
+
+// compileCommandBindings validates the chat-verb bindings: every target must
+// name a declared resource check or table.
+func (b *Book) compileCommandBindings(op string, raw map[string]rawCommandBinding) error {
+	if len(raw) == 0 {
+		return nil
+	}
+	verbs := make([]string, 0, len(raw))
+	for verb := range raw {
+		verbs = append(verbs, verb)
+	}
+	sort.Strings(verbs)
+	for _, verb := range verbs {
+		cb := raw[verb]
+		if verb == "" {
+			return apperr.New(op, apperr.ConfigInvalid, "command binding with empty verb")
+		}
+		modes := 0
+		binding := compiledBinding{verb: verb}
+		if cb.ResourceCheck != "" {
+			modes++
+			if _, ok := b.resChecks[cb.ResourceCheck]; !ok {
+				return apperr.New(op, apperr.ConfigInvalid,
+					"command binding "+verb+" references unknown resource check "+cb.ResourceCheck)
+			}
+			binding.kind, binding.target = BindingKindResourceCheck, cb.ResourceCheck
+		}
+		if cb.Table != "" {
+			modes++
+			if _, ok := b.tables.Find(cb.Table); !ok {
+				return apperr.New(op, apperr.ConfigInvalid,
+					"command binding "+verb+" references unknown table "+cb.Table)
+			}
+			binding.kind, binding.target = BindingKindTable, cb.Table
+		}
+		if modes != 1 {
+			return apperr.New(op, apperr.ConfigInvalid,
+				"command binding "+verb+" must set exactly one of resource_check or table")
+		}
+		if b.cmdBindings == nil {
+			b.cmdBindings = map[string]compiledBinding{}
+		}
+		b.cmdBindings[verb] = binding
 	}
 	return nil
 }
@@ -633,6 +795,11 @@ func (b *Book) compileDerived(op string, raw rawDerived, attrVars map[string]boo
 			return apperr.New(op, apperr.ConfigInvalid, "duplicate vitals resource "+v.Resource)
 		}
 		vitalsSeen[v.Resource] = true
+		for _, alias := range v.Aliases {
+			if strings.TrimSpace(alias) == "" {
+				return apperr.New(op, apperr.ConfigInvalid, "vitals "+v.Resource+" has an empty alias")
+			}
+		}
 		max, err := compileIntFormula(v.Max, "vitals "+v.Resource+" max", env)
 		if err != nil {
 			return err
@@ -641,7 +808,13 @@ func (b *Book) compileDerived(op string, raw rawDerived, attrVars map[string]boo
 		if err != nil {
 			return err
 		}
-		b.vitals = append(b.vitals, compiledVitals{resource: v.Resource, max: max, initial: initial})
+		b.vitals = append(b.vitals, compiledVitals{
+			resource: v.Resource,
+			name:     v.Name,
+			aliases:  v.Aliases,
+			max:      max,
+			initial:  initial,
+		})
 	}
 
 	for _, ia := range raw.InitialAttributes {

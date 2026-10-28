@@ -63,8 +63,11 @@ func TestDnD5eBook(t *testing.T) {
 		t.Fatalf("FindAttribute(STR) = %+v, %v", a, ok)
 	}
 	// A DEX 8 character has a -1 modifier (floor division, not truncation).
+	// LEVEL/HIT_DIE are part of the sheet contract since T17a: prof and
+	// max_hp are level-driven formulas.
 	d, err := b.Derive(&character.Character{Attributes: map[string]int{
 		"STR": 10, "DEX": 8, "CON": 10, "INT": 9, "WIS": 10, "CHA": 10,
+		"LEVEL": 1, "HIT_DIE": 8,
 	}})
 	if err != nil {
 		t.Fatal(err)
@@ -74,6 +77,19 @@ func TestDnD5eBook(t *testing.T) {
 	}
 	if v, ok := d.Int("int_mod"); !ok || v != -1 {
 		t.Fatalf("int_mod = %d, %v, want -1", v, ok)
+	}
+	// Proficiency steps: 1-4 → 2, 5-8 → 3, 9-12 → 4 (2 + (level-1)/4).
+	for _, tc := range []struct{ level, want int }{{1, 2}, {4, 2}, {5, 3}, {8, 3}, {9, 4}, {17, 6}} {
+		d, err := b.Derive(&character.Character{Attributes: map[string]int{
+			"STR": 10, "DEX": 10, "CON": 10, "INT": 10, "WIS": 10, "CHA": 10,
+			"LEVEL": tc.level, "HIT_DIE": 8,
+		}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if v, ok := d.Int("prof"); !ok || v != tc.want {
+			t.Fatalf("prof at level %d = %d, %v, want %d", tc.level, v, ok, tc.want)
+		}
 	}
 }
 

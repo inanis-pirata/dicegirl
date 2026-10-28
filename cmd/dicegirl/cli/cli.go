@@ -32,10 +32,11 @@ const usageText = `dicegirl — 本地 TRPG 骰子与规则引擎
     r [语句] [原因]                   掷骰；无语句时掷默认骰（默认 d100）
     rd [面数]                         默认骰；rd6 等价 d6
     rs <语句> [原因]                  精简掷骰（只出总值）
-    ra/rc [难度] [n#] [名称] [目标] [±n]  检定；ra 15+1 优势、ra 15-1 劣势、ra 困难 15
+    ra/rc [难度] [n#] [名称] [目标] [±n]  检定；ra 15+1 优势、ra 困难 15、ra 理智（资源轨名）
     rb/rp [数量] <检定参数>            奖励骰 / 惩罚骰
-    rav <A值> <B值> [--system <规则书>]  对抗检定
+    rav <名或值> <名或值> [--system <规则书>] [--character <名字|id>]  对抗检定
     en <技能/属性> [目标|成长量] [原因]  成长检定（成长后直接写卡）
+    ds / ds reset                     死亡豁免（5e；掷骰并记录成功/失败计数）
 
   角色卡
     pc new <名称> [K=V...] [--system <规则书>] [--active]   手工建卡
@@ -46,16 +47,19 @@ const usageText = `dicegirl — 本地 TRPG 骰子与规则引擎
     pc redo [名字|id]｜pc build [名字|id]｜pc stat [名字|id]｜pc clr
     st show｜st show <键>｜st del <键>｜st clr
     st K=V｜st K60｜st K 60｜st K±表达式...｜st &名=表达式   查看/修改当前角色
+                                      （键按 属性→技能→资源轨 解析，st san=40 设轨道现值）
+    st alloc｜st alloc <池> <技能>±<点数>...｜st alloc clr   技能加点池（作成后分配/退点/重置）
 
   人物作成（别名由规则书自己声明：coc → CoC 7e，dnd → D&D 5e）
     <别名>[版本][d] [数量]      如 coc6d（6 版购点法）、coc 10、dndd（27 点购点）
 
   资源与规则
-    sc <成功损失>/<失败损失> [当前值] [原因] [--apply]   理智检定
+    sc <成功损失>/<失败损失> [当前值] [原因] [--apply]   理智检定（规则书 command_bindings 绑定）
     rule list｜rule validate [--system <规则书>]   规则书列表 / 重新校验
     rule ref <词条>｜rule ref list｜rule ref set [系统]  规则速查
-    tb <表 id>｜tb list [--system <规则书>]     规则书声明的随机表
-    ti｜li                            临时/总结性疯狂表（CoC）
+    rule add --file <规则书.yaml> [--force]｜rule del <id>   安装/卸载用户规则书
+    tb <表名|表 id>｜tb list [--system <规则书>]     规则书声明的随机表
+    ti｜li                            疯狂表（由规则书 command_bindings 绑定）
     st derived [--character <名字|id>] [--init] [--force]   派生数值（调整值/HP/MP/理智轨等）
 
   状态与团务

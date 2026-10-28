@@ -111,6 +111,24 @@ func (r *Registry) Replace(ctx context.Context, system RuleSystem) error {
 	return nil
 }
 
+// Unregister removes a user-installed system (`rule del`). The id must be
+// registered; if the removed book was the default, the default selection is
+// cleared (the next `rule add`/`rule patch` that declares default re-fills
+// it, and commands needing a book report the missing default until then).
+func (r *Registry) Unregister(id string) error {
+	const op = "rules.Registry.Unregister"
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, exists := r.systems[id]; !exists {
+		return apperr.New(op, apperr.RuleNotFound, "rule system not registered: "+id)
+	}
+	delete(r.systems, id)
+	if r.defaultID == id {
+		r.defaultID = ""
+	}
+	return nil
+}
+
 // Get returns the system with id, or false.
 func (r *Registry) Get(id string) (RuleSystem, bool) {
 	r.mu.RLock()

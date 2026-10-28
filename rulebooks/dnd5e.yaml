@@ -46,6 +46,11 @@ attributes:
   - { id: "INT", name: "智力", aliases: ["Intelligence"] }
   - { id: "WIS", name: "感知", aliases: ["Wisdom"] }
   - { id: "CHA", name: "魅力", aliases: ["Charisma"] }
+  # 等级驱动熟练加值与 HP 上限；升级用 `.st LEVEL=5`。新生成时默认 1。
+  # （故意不带英文别名：别名不得与生成槽位同名。）
+  - { id: "LEVEL", name: "等级" }
+  # 职业生命骰面数（d6/d8/d10/d12）；升级取平均 = 骰面/2+1。换职业改它。
+  - { id: "HIT_DIE", name: "生命骰面数" }
 
 # The 18 skills. The sheet value is the character's check bonus (ability
 # modifier + proficiency bonus when trained, 0 when untrained and the
@@ -91,6 +96,9 @@ mechanic:
   bonus_keep: highest
   penalty_keep: lowest
   label: "d20"
+  # 5e 的母语叫法：+1 是优势（2d20 取高），-1 是劣势（2d20 取低）。
+  bonus_label: "优势"
+  penalty_label: "劣势"
 
 # Success levels, evaluated in order. The d20 family succeeds by REACHING
 # the target. 5e itself gives natural 1/20 special meaning only on attack
@@ -119,6 +127,15 @@ opposed:
   fumble_level: fumble
   tie_break: higher_target
 
+# 死亡豁免（PHB，T17b）：HP≤0 倒地后每轮 `.ds` 掷一次。参数在此声明；
+# 3 成/3 败的计数是角色状态（Character.Metadata），不进规则书。
+death_save:
+  threshold: 10          # d20 >= 10 记一次成功
+  successes_needed: 3    # 攒满即伤势稳定
+  failures_allowed: 3    # 攒满即死亡
+  crit_value: 20         # 天然 20：恢复 1 HP 起身，计数清空
+  critfail_value: 1      # 天然 1：一次计两次失败
+
 # Derived statistics, evaluated in declaration order; integer results are
 # visible to later formulas (and to `dicegirl derived`). D&D rounds ability
 # modifiers down, and the formula language's division is floor division, so
@@ -131,18 +148,17 @@ derived:
     - { id: int_mod, name: "智力调整值", formula: "(INT-10)/2" }
     - { id: wis_mod, name: "感知调整值", formula: "(WIS-10)/2" }
     - { id: cha_mod, name: "魅力调整值", formula: "(CHA-10)/2" }
-    # Proficiency bonus by level is 2 + (level-1)/4, but the sheet has no
-    # level field yet; the level 1-4 value is declared here and higher
-    # levels can override it per character.
-    - { id: prof, name: "熟练加值（1–4 级）", formula: "2" }
+    # 熟练加值 = 2 + (等级-1)/4（向下取整正好是 5e 的每 4 级 +1）。
+    # 升级用 `.st LEVEL=5`，无需换表。
+    - { id: prof, name: "熟练加值", formula: "2 + (LEVEL-1)/4" }
     - { id: initiative, name: "先攻", formula: "dex_mod" }
     - { id: passive_perception, name: "被动察觉", formula: "10 + wis_mod" }
     - { id: ac, name: "护甲等级（无甲）", formula: "10 + dex_mod" }
     - { id: carry_capacity, name: "负重上限（磅）", formula: "STR*15" }
-    # Hit points need a class hit die; d8 (牧师/德鲁伊/武僧/游荡者/邪术师)
-    # is the middle value. 1 级 HP = 骰面 + 体质调整值；其它骰面把 8 改成
-    # 6/10/12，升级时再按平均值累加。
-    - { id: max_hp, name: "HP 上限（1 级 d8 职业）", formula: "8 + con_mod" }
+    # HP 上限（取平均制）：1 级 = 生命骰面 + 体质调整值；之后每级
+    # +（骰面/2+1）+ 体质调整值。d8 职业建卡即默认正确；法师/战士把
+    # HIT_DIE 改成 6/10 即可（`.st HIT_DIE=6`）。
+    - { id: max_hp, name: "HP 上限（平均制）", formula: "HIT_DIE + (LEVEL-1)*(HIT_DIE/2+1) + con_mod*LEVEL" }
   vitals:
     - { resource: hp, max: max_hp, initial: max_hp }
 
@@ -270,6 +286,9 @@ generation:
     - { attr: INT, expr: "4d6kh3", min: 3, max: 18 }
     - { attr: WIS, expr: "4d6kh3", min: 3, max: 18 }
     - { attr: CHA, expr: "4d6kh3", min: 3, max: 18 }
+    # 常量槽位：1 级、d8 职业（换职业改 HIT_DIE 或事后 `.st HIT_DIE=6`）。
+    - { attr: LEVEL, expr: "1", min: 1, max: 20 }
+    - { attr: HIT_DIE, expr: "8", min: 6, max: 12 }
 
   point_buy:
     attributes: [STR, DEX, CON, INT, WIS, CHA]

@@ -46,6 +46,7 @@ type rawGeneration struct {
 	Characteristics []rawCharacteristic    `yaml:"characteristics"`
 	Variants        []rawGenerationVariant `yaml:"variants"`
 	PointBuy        *rawPointBuy           `yaml:"point_buy"`
+	SkillPoints     []rawSkillPool         `yaml:"skill_points"`
 }
 
 // rawCharacteristic is one rolled characteristic.
@@ -63,6 +64,7 @@ type rawGenerationVariant struct {
 	Name            string              `yaml:"name"`
 	Characteristics []rawCharacteristic `yaml:"characteristics"`
 	PointBuy        *rawPointBuy        `yaml:"point_buy"`
+	SkillPoints     []rawSkillPool      `yaml:"skill_points"`
 }
 
 // rawPointBuy declares the point-buy method.
@@ -157,6 +159,7 @@ type compiledVariant struct {
 	name            string
 	characteristics []compiledCharacteristic
 	pointBuy        *compiledPointBuy
+	skillPools      []compiledSkillPool
 }
 
 // GenerationInput parameterizes one generation request.
@@ -487,6 +490,10 @@ func (b *Book) compileGeneration(op string, raw *rawGeneration) error {
 	if err != nil {
 		return err
 	}
+	baseSkillPools, err := b.compileSkillPools(op, raw.SkillPoints)
+	if err != nil {
+		return err
+	}
 	for _, rv := range raw.Variants {
 		if rv.ID == "" {
 			return apperr.New(op, apperr.ConfigInvalid, "generation variant has no id")
@@ -509,7 +516,14 @@ func (b *Book) compileGeneration(op string, raw *rawGeneration) error {
 				return err
 			}
 		}
-		v := &compiledVariant{id: rv.ID, name: rv.Name, characteristics: chars, pointBuy: pb}
+		pools := baseSkillPools
+		if len(rv.SkillPoints) > 0 {
+			pools, err = b.compileSkillPools(op, rv.SkillPoints)
+			if err != nil {
+				return err
+			}
+		}
+		v := &compiledVariant{id: rv.ID, name: rv.Name, characteristics: chars, pointBuy: pb, skillPools: pools}
 		if v.name == "" {
 			v.name = rv.ID
 		}
@@ -534,6 +548,7 @@ func (b *Book) compileGeneration(op string, raw *rawGeneration) error {
 			name:            name,
 			characteristics: defaults.characteristics,
 			pointBuy:        basePointBuy,
+			skillPools:      baseSkillPools,
 		}
 		g.order = append([]string{id}, g.order...)
 		g.defaultVariant = id

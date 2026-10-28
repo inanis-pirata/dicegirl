@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>dicegirl 角色生成器 · 离线版</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #ffffff; --ink: #1f2430; --sub: #6b7280;
+    --line: #e3e6eb; --accent: #2563eb; --accent-ink: #ffffff;
+    --ok: #16a34a; --warn: #d97706; --mono: ui-monospace, Consolas, "Courier New", monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 15px/1.6 -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; }
+  .wrap { max-width: 960px; margin: 0 auto; padding: 24px 16px 64px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .sub { color: var(--sub); font-size: 13px; margin-bottom: 20px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+          padding: 18px; margin-bottom: 16px; }
+  .tabs { display: flex; gap: 8px; margin-bottom: 14px; }
+  .tabs button { flex: 1; padding: 10px; border: 1px solid var(--line); background: #fff;
+                 border-radius: 8px; cursor: pointer; font-size: 15px; }
+  .tabs button.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 8px 0; }
+  label { font-size: 13px; color: var(--sub); }
+  input[type=text], input[type=number], select {
+    border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; font-size: 14px; }
+  input.w6 { width: 72px; } input.w10 { width: 110px; }
+  button.act { padding: 8px 16px; border: 0; border-radius: 8px; cursor: pointer;
+               background: var(--accent); color: var(--accent-ink); font-size: 14px; }
+  button.ghost { background: #fff; color: var(--ink); border: 1px solid var(--line); }
+  table { border-collapse: collapse; width: 100%; margin-top: 8px; }
+  th, td { border-bottom: 1px solid var(--line); padding: 7px 8px; text-align: left; font-size: 14px; }
+  th { color: var(--sub); font-weight: 600; font-size: 13px; }
+  td.num { font-family: var(--mono); }
+  tr.dim td { color: var(--sub); }
+  .pts { font-size: 13px; }
+  .pts .ok { color: var(--ok); } .pts .bad { color: var(--warn); }
+  .out { background: #0f172a; color: #e2e8f0; border-radius: 8px; padding: 12px 14px;
+         font-family: var(--mono); font-size: 13px; white-space: pre-wrap;
+         word-break: break-all; margin-top: 8px; }
+  .copy { margin-top: 8px; }
+  .hint { font-size: 12.5px; color: var(--sub); margin-top: 6px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 10px; }
+  .cell { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+  .cell .k { font-size: 12px; color: var(--sub); }
+  .cell .v { font-family: var(--mono); font-size: 17px; }
+  .hidden { display: none; }
+  .budget { font-size: 14px; margin: 6px 0; }
+  .budget b { font-family: var(--mono); }
+  .over { color: var(--warn); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>dicegirl 角色生成器</h1>
+  <div class="sub">
+    离线单文件：下载后直接双击打开即可使用，不联网。生成结果与 dicegirl 指令
+    <code>pc new 名字 KEY=VALUE …</code> 完全兼容，复制即用。
+  </div>
+
+  <div class="card">
+    <div class="tabs">
+      <button id="tab-coc" class="on" onclick="switchSystem('coc')">CoC 7版（克苏鲁的呼唤）</button>
+      <button id="tab-dnd" onclick="switchSystem('dnd')">DND 5e（2014）</button>
+    </div>
+
+    <div class="row">
+      <label>调查员 / 角色名</label>
+      <input type="text" id="cname" class="w10" value="无名者">
+    </div>
+
+    <!-- ============ CoC ============ -->
+    <div id="coc-panel">
+      <div class="row">
+        <label>生成方式</label>
+        <select id="coc-mode" onchange="cocRender()">
+          <option value="roll7">掷骰 · 7 版（3d6×5 系）</option>
+          <option value="roll6">掷骰 · 6 版（2d6 系）</option>
+          <option value="buy">购点法（预算 = EDU×20 + INT×10）</option>
+        </select>
+        <button class="act ghost" onclick="cocRoll()">🎲 重新掷骰</button>
+      </div>
+      <div id="coc-buy-area" class="hidden">
+        <div class="budget">总预算：<b id="coc-budget">—</b>　已用：<b id="coc-used">0</b>　剩余：<b id="coc-left">0</b></div>
+        <div class="hint">购点范围 15–99；费率与 dicegirl 的 coc7.yaml 完全一致。改 EDU / INT 会同时改变预算。</div>
+      </div>
+      <div id="coc-table"></div>
+      <div class="grid" id="coc-derived" style="margin-top:12px"></div>
+    </div>
+
+    <!-- ============ DND ============ -->
+    <div id="dnd-panel" class="hidden">
+      <div class="row">
+        <label>生成方式</label>
+        <select id="dnd-mode" onchange="dndRender()">
+          <option value="roll">掷骰 · 4d6 去最低</option>
+          <option value="array">标准数组（15/14/13/12/10/8）</option>
+          <option value="buy">购点法（27 点）</option>
+        </select>
+        <button class="act ghost" onclick="dndRoll()">🎲 重新掷骰</button>
+        <label style="margin-left:16px">等级</label>
+        <input type="number" id="dnd-level" class="w6" min="1" max="20" value="1" onchange="dndRender()">
+        <label>生命骰</label>
+        <select id="dnd-hitdie" onchange="dndRender()">
+          <option value="6">d6（法师/术士）</option>
+          <option value="8" selected>d8（牧师/德鲁伊/武僧/游荡者/邪术师）</option>
+          <option value="10">d10（战士/圣武士）</option>
+          <option value="12">d12（野蛮人）</option>
+        </select>
+      </div>
+      <div id="dnd-buy-area" class="hidden">
+        <div class="budget">27 点购点：8=0分 9=1 10=2 11=3 12=4 13=5 14=7 15=9　已用：<b id="dnd-used">0</b>　剩余：<b id="dnd-left">27</b></div>
+      </div>
+      <div id="dnd-table"></div>
+      <div class="grid" id="dnd-derived" style="margin-top:12px"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <b>导入 dicegirl</b>
+    <div class="hint">下面这条命令可直接粘贴到 dicegirl CLI（或私聊骰娘）创建角色：</div>
+    <div class="out" id="cmd-out"></div>
+    <button class="act copy" onclick="copyCmd()">复制命令</button>
+    <span class="hint" id="copy-tip"></span>
+  </div>
+
+  <div class="card">
+    <b>说明</b>
+    <div class="hint">
+      · 掷骰与购点费率取自仓库内规则书 <code>rulebooks/coc7.yaml</code> 与 <code>rulebooks/dnd5e.yaml</code>，
+      与 CLI 的 <code>.dnd</code> / 购点法输出同一套数学。<br>
+      · 5e 的 HP 采用升级取平均制：1 级 = 生命骰 + 体质调整值，之后每级 +（骰面/2+1）+ 体质调整值。<br>
+      · CoC 技能点：7 版职业 EDU×4（单技能上限 90）、兴趣 INT×2（上限 75，手枪 50）；
+      6 版职业 EDU×20、兴趣 INT×10（上限 99）。在 CLI 里用 <code>st alloc</code> 分配。<br>
+      · 本页面不收集、不发送任何数据。
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+/* ---------- 基础 ---------- */
+function d(n) { return 1 + Math.floor(Math.random() * n); }
+function sum(a) { return a.reduce((x, y) => x + y, 0); }
+function d6x(times, die, mul) { // times 个 dN 求和 × mul
+  let t = 0; for (let i = 0; i < times; i++) t += d(die);
+  return t * mul;
+}
+function roll4d6kh3() {
+  const a = [d(6), d(6), d(6), d(6)].sort((x, y) => y - x);
+  return a[0] + a[1] + a[2];
+}
+const COC_ATTRS = ["STR", "CON", "SIZ", "DEX", "APP", "INT", "POW", "EDU", "LUCK"];
+const COC_NAMES = { STR: "力量", CON: "体质", SIZ: "体型", DEX: "敏捷", APP: "外貌",
+                    INT: "智力", POW: "意志", EDU: "教育", LUCK: "幸运" };
+const DND_ATTRS = ["STR", "DEX", "CON", "INT", "WIS", "CHA"];
+const DND_NAMES = { STR: "力量", DEX: "敏捷", CON: "体质", INT: "智力", WIS: "感知", CHA: "魅力" };
+
+let cocState = {};   // attr -> value
+let dndState = {};   // attr -> value
+
+/* ---------- CoC 购点费率（与 coc7.yaml 完全一致） ---------- */
+const COC_TIERS = [
+  { min: 15, max: 49, from: 15, base: 7,  points: 1, per: 2 },
+  { min: 50, max: 79, from: 49, base: 24, points: 1, per: 5 },
+  { min: 80, max: 89, from: 79, base: 30, points: 3, per: 5 },
+  { min: 90, max: 99, from: 89, base: 36, points: 7, per: 5 },
+];
+function cocCost(v) {
+  for (const t of COC_TIERS) {
+    if (v >= t.min && v <= t.max) {
+      const over = Math.max(0, v - t.from);
+      return t.base + Math.ceil(over / t.per) * t.points;
+    }
+  }
+  return NaN;
+}
+/* ---------- DND 购点费率 ---------- */
+const DND_COST = { 8: 0, 9: 1, 10: 2, 11: 3, 12: 4, 13: 5, 14: 7, 15: 9 };
+const DND_ARRAY = [15, 14, 13, 12, 10, 8];
+
+/* ---------- 系统切换 ---------- */
+function switchSystem(s) {
+  document.getElementById("tab-coc").classList.toggle("on", s === "coc");
+  document.getElementById("tab-dnd").classList.toggle("on", s === "dnd");
+  document.getElementById("coc-panel").classList.toggle("hidden", s !== "coc");
+  document.getElementById("dnd-panel").classList.toggle("hidden", s !== "dnd");
+  render();
+}
+function currentSystem() {
+  return document.getElementById("tab-dnd").classList.contains("on") ? "dnd" : "coc";
+}
+
+/* ---------- CoC ---------- */
+function cocRollExpr(attr, mode) {
+  if (mode === "roll7") {
+    if (attr === "SIZ" || attr === "INT" || attr === "EDU") return d6x(2, 6, 5) + 6 * 5; // (2d6+6)*5
+    return d6x(3, 6, 5);                                                                  // 3d6*5
+  }
+  // roll6：STR/CON/DEX 取 2d6+6，其余 2d6（均 ×5）
+  if (attr === "STR" || attr === "CON" || attr === "DEX") return d6x(2, 6, 5) + 6 * 5;
+  return d6x(2, 6, 5);
+}
+function cocRoll() {
+  const mode = document.getElementById("coc-mode").value;
+  if (mode === "buy") return;
+  for (const a of COC_ATTRS) cocState[a] = cocRollExpr(a, mode);
+  cocRender();
+}
+function cocRender() {
+  const mode = document.getElementById("coc-mode").value;
+  document.getElementById("coc-buy-area").classList.toggle("hidden", mode !== "buy");
+  if (mode === "buy") {
+    if (!Object.keys(cocState).length)
+      for (const a of COC_ATTRS) cocState[a] = 50;
+    cocState.EDU = clamp(cocState.EDU || 60, 15, 99);
+    cocState.INT = clamp(cocState.INT || 50, 15, 99);
+  } else if (!Object.keys(cocState).length) {
+    cocRoll();
+    return;
+  }
+  const budget = cocState.EDU * 20 + cocState.INT * 10;
+  let used = 0;
+  for (const a of COC_ATTRS) used += cocCost(cocState[a]) || 0;
+
+  let html = "<table><tr><th>属性</th>";
+  html += mode === "buy" ? "<th>购点（15–99）</th>" : "<th>值（3d6×5 系）</th>";
+  html += "<th>花费</th></tr>";
+  for (const a of COC_ATTRS) {
+    const c = cocCost(cocState[a]) || 0;
+    const overBudget = mode === "buy" && used > budget;
+    html += "<tr" + (mode === "buy" && (a === "EDU" || a === "INT") ? ' class="dim"' : "") + "><td>"
+          + COC_NAMES[a] + " <span class='hint'>" + a + "</span></td><td>";
+    if (mode === "buy" && (a === "EDU" || a === "INT")) {
+      html += cocState[a] + " <span class='hint'>（预算基数，不走购点）</span>";
+    } else if (mode === "buy") {
+      html += "<input type='number' class='w6' min='15' max='99' value='" + cocState[a]
+            + "' onchange='cocState." + a + "=clamp(+this.value,15,99);cocRender()'>";
+    } else {
+      html += "<span class='num'>" + cocState[a] + "</span>";
+    }
+    html += "</td><td class='num" + (overBudget ? " over" : "") + "'>" + (mode === "buy" ? c : "—") + "</td></tr>";
+  }
+  html += "</table>";
+  document.getElementById("coc-table").innerHTML = html;
+
+  const left = budget - used;
+  const bud = document.getElementById("coc-budget"), u = document.getElementById("coc-used"), l = document.getElementById("coc-left");
+  if (bud) {
+    bud.textContent = budget;
+    u.textContent = used;
+    l.textContent = left;
+    l.className = left >= 0 ? "ok" : "bad";
+  }
+  cocDerived();
+  renderCmd();
+}
+function cocDerived() {
+  const s = cocState;
+  const hp = Math.floor((s.CON + s.SIZ) / 10);
+  const mp = Math.floor(s.POW / 5);
+  const san = s.POW;
+  const mov = (s.STR > s.SIZ && s.DEX > s.SIZ) ? 9 : (s.STR < s.SIZ && s.DEX < s.SIZ) ? 7 : 8;
+  const total = s.STR + s.SIZ;
+  const DB = [
+    [2, 64, "-2", -2], [65, 84, "-1", -1], [85, 124, "0", 0], [125, 164, "1d4", 1],
+    [165, 204, "1d6", 2], [205, 284, "2d6", 3], [285, 364, "3d6", 4],
+    [365, 444, "4d6", 5], [445, 999, "5d6", 6],
+  ].find(r => total >= r[0] && total <= r[1]);
+  const cells = [
+    ["HP 体力", hp], ["MP 魔法", mp], ["SAN 初始理智", san], ["MOV 移动", mov],
+    ["体格 Build", DB ? DB[3] : "?"], ["伤害加值 DB", DB ? DB[2] : "?"],
+    ["职业技能点", "EDU×4 = " + s.EDU * 4], ["兴趣技能点", "INT×2 = " + s.INT * 2],
+  ];
+  document.getElementById("coc-derived").innerHTML =
+    cells.map(c => "<div class='cell'><div class='k'>" + c[0] + "</div><div class='v'>" + c[1] + "</div></div>").join("");
+}
+
+/* ---------- DND ---------- */
+function dndRoll() {
+  const mode = document.getElementById("dnd-mode").value;
+  if (mode === "buy") return;
+  const vals = mode === "array" ? DND_ARRAY.slice() : DND_ATTRS.map(() => roll4d6kh3());
+  DND_ATTRS.forEach((a, i) => dndState[a] = vals[i]);
+  dndRender();
+}
+function dndRender() {
+  const mode = document.getElementById("dnd-mode").value;
+  document.getElementById("dnd-buy-area").classList.toggle("hidden", mode !== "buy");
+  if (mode === "buy") {
+    if (!Object.keys(dndState).length) for (const a of DND_ATTRS) dndState[a] = 8;
+  } else if (!Object.keys(dndState).length) {
+    dndRoll();
+    return;
+  }
+  let used = 0, over = false;
+  for (const a of DND_ATTRS) { const c = DND_COST[dndState[a]]; if (c === undefined) over = true; else used += c; }
+
+  let html = "<table><tr><th>属性</th>";
+  html += mode === "buy" ? "<th>购点（8–15）</th>" : "<th>值</th>";
+  html += "<th>调整值</th><th>花费</th></tr>";
+  for (const a of DND_ATTRS) {
+    const mod = Math.floor((dndState[a] - 10) / 2);
+    const c = DND_COST[dndState[a]];
+    html += "<tr><td>" + DND_NAMES[a] + " <span class='hint'>" + a + "</span></td><td>";
+    if (mode === "buy") {
+      html += "<input type='number' class='w6' min='8' max='15' value='" + dndState[a]
+            + "' onchange='dndState." + a + "=clamp(+this.value,8,15);dndRender()'>";
+    } else {
+      html += "<span class='num'>" + dndState[a] + "</span>";
+    }
+    html += "</td><td class='num'>" + (mod >= 0 ? "+" : "") + mod + "</td><td class='num"
+          + (over ? " over" : "") + "'>" + (mode === "buy" ? (c === undefined ? "越界" : c) : "—") + "</td></tr>";
+  }
+  html += "</table>";
+  document.getElementById("dnd-table").innerHTML = html;
+
+  const u = document.getElementById("dnd-used"), l = document.getElementById("dnd-left");
+  if (u) {
+    u.textContent = used;
+    l.textContent = 27 - used;
+    l.className = used <= 27 ? "ok" : "bad";
+  }
+  dndDerived();
+  renderCmd();
+}
+function dndDerived() {
+  const m = a => Math.floor((dndState[a] - 10) / 2);
+  const L = clamp(parseInt(document.getElementById("dnd-level").value) || 1, 1, 20);
+  const hd = parseInt(document.getElementById("dnd-hitdie").value) || 8;
+  const prof = 2 + Math.floor((L - 1) / 4);
+  const hp = hd + (L - 1) * (Math.floor(hd / 2) + 1) + m("CON") * L;
+  const cells = [
+    ["熟练加值", "+" + prof], ["HP 上限", hp + "（" + L + " 级 d" + hd + "）"],
+    ["护甲 AC（无甲）", 10 + m("DEX")], ["先攻", (m("DEX") >= 0 ? "+" : "") + m("DEX")],
+    ["被动察觉", 10 + m("WIS")], ["负重上限", dndState.STR * 15 + " 磅"],
+  ];
+  document.getElementById("dnd-derived").innerHTML =
+    cells.map(c => "<div class='cell'><div class='k'>" + c[0] + "</div><div class='v'>" + c[1] + "</div></div>").join("");
+}
+
+/* ---------- 命令输出与复制 ---------- */
+function renderCmd() {
+  const name = (document.getElementById("cname").value || "无名者").trim();
+  const sys = currentSystem();
+  const s = sys === "coc" ? cocState : dndState;
+  const attrs = sys === "coc" ? COC_ATTRS : DND_ATTRS.concat(["LEVEL", "HIT_DIE"]);
+  let pairs = attrs.map(a => {
+    let v = s[a];
+    if (a === "LEVEL") v = clamp(parseInt(document.getElementById("dnd-level").value) || 1, 1, 20);
+    if (a === "HIT_DIE") v = parseInt(document.getElementById("dnd-hitdie").value) || 8;
+    return a + "=" + v;
+  });
+  const sysFlag = sys === "coc" ? "" : " --system dnd5e";
+  document.getElementById("cmd-out").textContent =
+    "pc new " + name + sysFlag + " " + pairs.join(" ");
+}
+function copyCmd() {
+  const t = document.getElementById("cmd-out").textContent;
+  const tip = document.getElementById("copy-tip");
+  const done = () => { tip.textContent = "已复制 ✓"; setTimeout(() => tip.textContent = "", 2000); };
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(t).then(done).catch(() => fallbackCopy(t, done));
+  } else {
+    fallbackCopy(t, done);
+  }
+}
+function fallbackCopy(text, done) {
+  const ta = document.createElement("textarea");
+  ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+  document.body.appendChild(ta); ta.select();
+  try { document.execCommand("copy"); done(); } catch (e) { /* 忽略 */ }
+  document.body.removeChild(ta);
+}
+function clamp(v, lo, hi) { return Math.min(hi, Math.max(lo, v)); }
+
+/* ---------- 启动 ---------- */
+cocRoll();
+</script>
+</body>
+</html>

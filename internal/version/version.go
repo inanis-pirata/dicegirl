@@ -4,4 +4,4 @@ package version
 
 // Version is the release version shown by "dicegirl version" and stamped
 // into distribution archives.
-const Version = "0.1.0"
+const Version = "0.1.1"

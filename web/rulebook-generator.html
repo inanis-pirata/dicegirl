@@ -1,0 +1,689 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>dicegirl 规则书生成器 · 离线版</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #ffffff; --ink: #1f2430; --sub: #6b7280;
+    --line: #e3e6eb; --accent: #2563eb; --accent-ink: #ffffff;
+    --ok: #16a34a; --warn: #d97706; --mono: ui-monospace, Consolas, "Courier New", monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 15px/1.6 -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 24px 16px 64px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  h2 { font-size: 16px; margin: 0 0 10px; }
+  .sub { color: var(--sub); font-size: 13px; margin-bottom: 20px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+          padding: 18px; margin-bottom: 16px; }
+  .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 8px 0; }
+  label { font-size: 13px; color: var(--sub); }
+  input[type=text], input[type=number], select, textarea {
+    border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; font-size: 14px; }
+  textarea { font-family: var(--mono); width: 100%; }
+  input.w6 { width: 72px; } input.w10 { width: 130px; } input.w14 { width: 190px; }
+  button.act { padding: 8px 16px; border: 0; border-radius: 8px; cursor: pointer;
+               background: var(--accent); color: var(--accent-ink); font-size: 14px; }
+  button.ghost { background: #fff; color: var(--ink); border: 1px solid var(--line);
+                 padding: 5px 12px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+  button.mini { padding: 2px 8px; font-size: 12px; }
+  .itemrow { display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
+             border: 1px dashed var(--line); border-radius: 8px; padding: 8px; margin: 6px 0; }
+  .itemrow input, .itemrow select { font-size: 13px; }
+  .hint { font-size: 12.5px; color: var(--sub); margin-top: 6px; }
+  .opt-head { display: flex; align-items: center; gap: 8px; }
+  .opt-head h2 { margin: 0; }
+  .out { background: #0f172a; color: #e2e8f0; border-radius: 8px; padding: 12px 14px;
+         font-family: var(--mono); font-size: 13px; white-space: pre-wrap;
+         word-break: break-all; margin-top: 8px; max-height: 480px; overflow: auto; }
+  .warns { margin-top: 10px; font-size: 13px; }
+  .warns .bad { color: var(--warn); }
+  .warns .ok { color: var(--ok); }
+  .hidden { display: none; }
+  .copy { margin-top: 8px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>dicegirl 规则书生成器</h1>
+  <div class="sub">
+    离线单文件：下载后双击打开即可使用，不联网。产出的 YAML 放进
+    <code>&lt;数据根&gt;/rulebooks/</code>，在骰子里执行 <code>rule validate</code> 生效。
+    引擎以 <code>KnownFields(true)</code> 严格校验：多写、错拼任何字段名都会报 CONFIG_INVALID，
+    本页生成的字段名与内置规则书完全一致，可放心使用。
+  </div>
+
+  <!-- ============ 基本信息 ============ -->
+  <div class="card">
+    <h2>基本信息</h2>
+    <div class="row">
+      <label>规则书 id（小写英文）</label><input type="text" id="b-id" class="w10" value="myrpg">
+      <label>名称</label><input type="text" id="b-name" class="w14" value="我的规则">
+    </div>
+    <div class="row">
+      <label>系统版本</label><input type="text" id="b-sysver" class="w10" value="0.1.0">
+      <label>规则版本</label><input type="text" id="b-rulver" class="w10" value="1e">
+      <label>简介</label><input type="text" id="b-desc" class="w14" value="自建团规则">
+    </div>
+    <div class="row">
+      <label><input type="checkbox" id="b-default"> 设为默认规则书（无系统指令时使用）</label>
+      <label>作成指令（逗号分隔，可留空）</label>
+      <input type="text" id="b-commands" class="w10" placeholder="如 myrpg">
+    </div>
+  </div>
+
+  <!-- ============ 属性 ============ -->
+  <div class="card">
+    <h2>属性（characteristics）</h2>
+    <div class="hint">id 是卡上的规范键（建议大写英文）；name 是显示名；aliases 是玩家可输入的别名。别名不得与其他属性的 id/显示名重复。</div>
+    <div id="attr-list"></div>
+    <button class="ghost" onclick="addAttrRow()">+ 加一行属性</button>
+  </div>
+
+  <!-- ============ 技能 ============ -->
+  <div class="card">
+    <h2>技能（可选）</h2>
+    <div class="hint">键为技能 id（小写英文）；起始值二选一：固定 base 或公式 base_expr（可用属性作变量，如 DEX/2）。</div>
+    <div id="skill-list"></div>
+    <button class="ghost" onclick="addSkillRow()">+ 加一行技能</button>
+  </div>
+
+  <!-- ============ 数值范围 ============ -->
+  <div class="card">
+    <h2>数值范围（limits）</h2>
+    <div class="row">
+      <label>属性</label><input type="number" id="l-char-min" class="w6" value="0">–<input type="number" id="l-char-max" class="w6" value="99">
+      <label>技能</label><input type="number" id="l-skill-min" class="w6" value="0">–<input type="number" id="l-skill-max" class="w6" value="99">
+    </div>
+    <div class="row">
+      <label>检定目标</label><input type="number" id="l-tgt-min" class="w6" value="0">–<input type="number" id="l-tgt-max" class="w6" value="99">
+      <label>算式目标（可留空=同目标）</label><input type="number" id="l-ct-min" class="w6" placeholder="min">–<input type="number" id="l-ct-max" class="w6" placeholder="max">
+    </div>
+  </div>
+
+  <!-- ============ 检定机制 ============ -->
+  <div class="card">
+    <h2>检定机制（mechanic）</h2>
+    <div class="row">
+      <label>预设</label>
+      <select id="m-preset" onchange="applyPreset()">
+        <option value="d100">d100 ≤ 目标（CoC 系）</option>
+        <option value="d20">d20 ≥ 目标（DND 系）</option>
+        <option value="custom">自定义</option>
+      </select>
+      <label>奖励/惩罚上限</label><input type="number" id="m-maxbp" class="w6" value="2">
+    </div>
+    <div class="row" id="m-custom-row" style="display:none">
+      <label>单次检定表达式 roll</label><input type="text" id="m-roll" class="w10" placeholder="1d20">
+      <label>成功判定 meets（可用 roll/target）</label><input type="text" id="m-meets" class="w10" placeholder="roll >= target">
+    </div>
+    <div class="row">
+      <label>奖励骰取</label>
+      <select id="m-bkeep"><option value="highest">取高</option><option value="lowest">取低</option></select>
+      <label>惩罚骰取</label>
+      <select id="m-pkeep"><option value="highest">取高</option><option value="lowest">取低</option></select>
+      <label>机制标签</label><input type="text" id="m-label" class="w6" value="d100">
+      <label>奖励骰称呼（可留空）</label><input type="text" id="m-blabel" class="w6" placeholder="奖励骰">
+      <label>惩罚骰称呼（可留空）</label><input type="text" id="m-plabel" class="w6" placeholder="惩罚骰">
+    </div>
+  </div>
+
+  <!-- ============ 成功等级 ============ -->
+  <div class="card">
+    <h2>成功等级（checks.levels）</h2>
+    <div class="hint">按顺序判定，首个命中生效。除最后一档外每档都要写 when（可用变量 roll/target）；最后一档是兜底，when 必须留空。</div>
+    <div id="level-list"></div>
+    <button class="ghost" onclick="addLevelRow()">+ 加一档</button>
+  </div>
+
+  <!-- ============ 难度 ============ -->
+  <div class="card">
+    <div class="opt-head"><h2>难度修正（可选）</h2>
+      <label><input type="checkbox" id="d-on" onchange="toggleOpt('d-on', 'd-list', 'd-add')"> 启用</label></div>
+    <div class="hint">expr（改写目标，如 target/2）与 auto（命中即指定成功等级）只能二选一。</div>
+    <div id="d-list" class="hidden"></div>
+    <button id="d-add" class="ghost hidden" onclick="addDiffRow()">+ 加一档难度</button>
+  </div>
+
+  <!-- ============ 对抗 ============ -->
+  <div class="card">
+    <h2>对抗检定（opposed）</h2>
+    <div class="row">
+      <label>大失败等级 id</label><input type="text" id="o-fumble" class="w10" value="fumble">
+      <label>平局规则</label>
+      <select id="o-tie"><option value="higher_target">目标高者胜</option><option value="none">平局</option></select>
+    </div>
+  </div>
+
+  <!-- ============ 资源轨 ============ -->
+  <div class="card">
+    <div class="opt-head"><h2>资源轨 vitals（可选）</h2>
+      <label><input type="checkbox" id="v-on" onchange="toggleOpt('v-on','v-list','v-add')"> 启用</label></div>
+    <div class="hint">max/initial 是公式，可用属性与先声明的派生值（如 max_hp）。resource 是轨 id，name/aliases 供玩家按名字使用。</div>
+    <div id="v-list" class="hidden"></div>
+    <button id="v-add" class="ghost hidden" onclick="addVitalRow()">+ 加一条资源轨</button>
+  </div>
+
+  <!-- ============ 派生值 ============ -->
+  <div class="card">
+    <div class="opt-head"><h2>派生值（可选）</h2>
+      <label><input type="checkbox" id="dv-on" onchange="toggleOpt('dv-on','dv-list','dv-add')"> 启用</label></div>
+    <div class="hint">整数值公式（可用属性与其前面已声明的派生值），如 max_hp = 体力相关公式。</div>
+    <div id="dv-list" class="hidden"></div>
+    <button id="dv-add" class="ghost hidden" onclick="addDerivedRow()">+ 加一条派生值</button>
+  </div>
+
+  <!-- ============ 资源检定 ============ -->
+  <div class="card">
+    <div class="opt-head"><h2>资源检定（可选，如理智检定）</h2>
+      <label><input type="checkbox" id="rc-on" onchange="toggleOpt('rc-on','rc-list','rc-add')"> 启用</label></div>
+    <div class="hint">检定目标是资源现值；成功/失败各掷一条损失表达式。fumble_loss 填 max 表示大失败按最大损失扣。</div>
+    <div id="rc-list" class="hidden"></div>
+    <button id="rc-add" class="ghost hidden" onclick="addResCheckRow()">+ 加一条资源检定</button>
+  </div>
+
+  <!-- ============ 死亡豁免 ============ -->
+  <div class="card">
+    <div class="opt-head"><h2>死亡豁免 death_save（可选，5e 系）</h2>
+      <label><input type="checkbox" id="ds-on"> 启用</label></div>
+    <div id="ds-fields">
+      <div class="row">
+        <label>成功线 roll≥</label><input type="number" id="ds-threshold" class="w6" value="10">
+        <label>几次成功稳定</label><input type="number" id="ds-succ" class="w6" value="3">
+        <label>几次失败死亡</label><input type="number" id="ds-fail" class="w6" value="3">
+        <label>天然大成功</label><input type="number" id="ds-crit" class="w6" value="20">
+        <label>天然大失败</label><input type="number" id="ds-critfail" class="w6" value="1">
+      </div>
+      <div class="hint">全留默认可只写 <code>death_save: {}</code>；crit 与 critfail 必须不同，成功线不得超过天然大成功值。掷骰使用上方 mechanic 的表达式。</div>
+    </div>
+  </div>
+
+  <!-- ============ 随机表 ============ -->
+  <div class="card">
+    <div class="opt-head"><h2>随机表（可选）</h2>
+      <label><input type="checkbox" id="t-on" onchange="toggleOpt('t-on','t-list','t-add')"> 启用</label></div>
+    <div class="hint">每张表：id / 名称 / 骰式（如 1d10）；行格式「范围|文本」，范围如 1-2 或 5。文本中可用 {1d10} 内嵌掷骰。</div>
+    <div id="t-list" class="hidden"></div>
+    <button id="t-add" class="ghost hidden" onclick="addTableRow()">+ 加一张表</button>
+  </div>
+
+  <!-- ============ 规则速查 ============ -->
+  <div class="card">
+    <div class="opt-head"><h2>规则速查（可选）</h2>
+      <label><input type="checkbox" id="r-on" onchange="toggleOpt('r-on','r-list','r-add')"> 启用</label></div>
+    <div class="hint">供 <code>rule ref 词条</code> 查询；每条：id / 标题 / 关键词（逗号分隔）/ 正文。</div>
+    <div id="r-list" class="hidden"></div>
+    <button id="r-add" class="ghost hidden" onclick="addRuleRow()">+ 加一条</button>
+  </div>
+
+  <!-- ============ 成长检定 ============ -->
+  <div class="card">
+    <div class="opt-head"><h2>成长检定 growth_checks（可选，如 CoC en）</h2>
+      <label><input type="checkbox" id="g-on"> 启用</label></div>
+    <div id="g-fields">
+      <div class="row">
+        <label>成长条件（可用 roll/target）</label><input type="text" id="g-cond" class="w10" value="roll > target">
+        <label>成长量表达式</label><input type="text" id="g-gain" class="w10" value="1d10">
+        <label>上限（0=不设）</label><input type="number" id="g-cap" class="w6" value="99">
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ 输出 ============ -->
+  <div class="card">
+    <h2>生成的规则书 YAML</h2>
+    <button class="act" onclick="generate()">生成</button>
+    <button class="ghost copy" onclick="copyOut()">复制</button>
+    <button class="ghost copy" onclick="download()">下载 .yaml</button>
+    <div class="warns" id="warns"></div>
+    <div class="out" id="out">（点击「生成」）</div>
+    <div class="hint">
+      使用方法：把下载的文件放进 <code>&lt;数据根&gt;/rulebooks/</code>，执行 <code>rule validate</code>；
+      若报字段错误请核对提示。作成（generation）与伤害加值（damage_bonus）属于进阶段落，
+      建议从内置 <code>dnd5e.yaml</code> / <code>coc7.yaml</code> 复制后手改——生成器暂不产出这两段。
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+// ---------- helpers ----------
+function $(id) { return document.getElementById(id); }
+function val(id) { return $(id).value.trim(); }
+function num(id) { var v = parseInt($(id).value, 10); return isNaN(v) ? 0 : v; }
+function esc(s) {
+  s = String(s);
+  if (s === "") return '""';
+  if (/^[-?:,\[\]{}#&*!|>'"%@`]/.test(s) || /[:#]\s/.test(s) || /\s$/.test(s) ||
+      s !== s.trim() || /^[\d.+-]+$/.test(s) || /^(true|false|null|yes|no|on|off|~)$/i.test(s)) {
+    return '"' + s.replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"';
+  }
+  return s;
+}
+function q(s) { return '"' + String(s).replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"'; }
+function listRow(container, inner, delBtn) {
+  var div = document.createElement("div");
+  div.className = "itemrow";
+  div.innerHTML = inner + (delBtn ? '<button class="ghost mini" onclick="this.parentNode.remove()">删除</button>' : "");
+  container.appendChild(div);
+  return div;
+}
+
+// ---------- presets ----------
+function applyPreset() {
+  var p = $("m-preset").value;
+  $("m-custom-row").style.display = (p === "custom") ? "" : "none";
+  if (p === "d100") {
+    $("m-roll").value = "1d100"; $("m-meets").value = "roll <= target";
+    $("m-bkeep").value = "lowest"; $("m-pkeep").value = "highest";
+    $("m-maxbp").value = 2; $("m-label").value = "d100";
+    $("m-blabel").value = ""; $("m-plabel").value = "";
+    setLevelsDefault("d100");
+  } else if (p === "d20") {
+    $("m-roll").value = "1d20"; $("m-meets").value = "roll >= target";
+    $("m-bkeep").value = "highest"; $("m-pkeep").value = "lowest";
+    $("m-maxbp").value = 10; $("m-label").value = "d20";
+    $("m-blabel").value = "优势"; $("m-plabel").value = "劣势";
+    setLevelsDefault("d20");
+  }
+}
+function setLevelsDefault(kind) {
+  var list = $("level-list");
+  list.innerHTML = "";
+  if (kind === "d100") {
+    addLevelRow("fumble", "大失败", "(target < 50 && roll >= 96) || (target >= 50 && roll >= 100)");
+    addLevelRow("extreme", "极难成功", "roll <= target/5");
+    addLevelRow("hard", "困难成功", "roll <= target/2");
+    addLevelRow("regular", "成功", "roll <= target");
+    addLevelRow("fail", "失败", "");
+  } else {
+    addLevelRow("fumble", "大失败（天然 1）", "roll == 1");
+    addLevelRow("critical", "大成功（天然 20）", "roll == 20 && roll >= target");
+    addLevelRow("success", "成功", "roll >= target");
+    addLevelRow("fail", "失败", "");
+  }
+}
+
+// ---------- dynamic rows ----------
+function addAttrRow(id, name, aliases) {
+  listRow($("attr-list"),
+    '<input type="text" class="a-id w6" placeholder="id(STR)" value="' + (id || "") + '">' +
+    '<input type="text" class="a-name w6" placeholder="显示名" value="' + (name || "") + '">' +
+    '<input type="text" class="a-alias w14" placeholder="别名,逗号分隔(可空)" value="' + (aliases || "") + '">', true);
+}
+function addSkillRow(id, name, base, expr, aliases) {
+  listRow($("skill-list"),
+    '<input type="text" class="s-id w6" placeholder="技能id" value="' + (id || "") + '">' +
+    '<input type="text" class="s-name w6" placeholder="名称" value="' + (name || "") + '">' +
+    '<input type="number" class="s-base w6" placeholder="base" value="' + (base != null ? base : "") + '">' +
+    '<input type="text" class="s-expr w10" placeholder="base_expr(二选一)" value="' + (expr || "") + '">' +
+    '<input type="text" class="s-alias w14" placeholder="别名,逗号分隔(可空)" value="' + (aliases || "") + '">', true);
+}
+function addLevelRow(id, name, when) {
+  listRow($("level-list"),
+    '<input type="text" class="lv-id w6" placeholder="id" value="' + (id || "") + '">' +
+    '<input type="text" class="lv-name w10" placeholder="名称" value="' + (name || "") + '">' +
+    '<input type="text" class="lv-when" style="flex:1;min-width:220px" placeholder="when(最后一档留空)" value="' + (when || "") + '">', true);
+}
+function addDiffRow(id, name, expr, level) {
+  listRow($("d-list"),
+    '<input type="text" class="df-id w6" placeholder="id" value="' + (id || "") + '">' +
+    '<input type="text" class="df-name w6" placeholder="名称" value="' + (name || "") + '">' +
+    '<input type="text" class="df-expr w10" placeholder="expr(如 target/2)" value="' + (expr || "") + '">' +
+    '<input type="text" class="df-lv w6" placeholder="成功等级(auto用)" value="' + (level || "") + '">', true);
+}
+function addVitalRow(res, name, max, initial, aliases) {
+  listRow($("v-list"),
+    '<input type="text" class="v-res w6" placeholder="轨id(hp)" value="' + (res || "") + '">' +
+    '<input type="text" class="v-name w6" placeholder="名称(体力)" value="' + (name || "") + '">' +
+    '<input type="text" class="v-max w10" placeholder="max 公式" value="' + (max || "") + '">' +
+    '<input type="text" class="v-init w10" placeholder="initial 公式" value="' + (initial || "") + '">' +
+    '<input type="text" class="v-alias w10" placeholder="别名,逗号分隔(可空)" value="' + (aliases || "") + '">', true);
+}
+function addDerivedRow(id, name, formula) {
+  listRow($("dv-list"),
+    '<input type="text" class="dv-id w6" placeholder="id" value="' + (id || "") + '">' +
+    '<input type="text" class="dv-name w6" placeholder="名称" value="' + (name || "") + '">' +
+    '<input type="text" class="dv-f" style="flex:1;min-width:200px" placeholder="公式(如 CON + STR)" value="' + (formula || "") + '">', true);
+}
+function addResCheckRow() {
+  listRow($("rc-list"),
+    '<input type="text" class="rc-id w6" placeholder="检定id(sanity)" value="">' +
+    '<input type="text" class="rc-label w6" placeholder="标签(理智)" value="">' +
+    '<input type="text" class="rc-res w6" placeholder="轨id(san)" value="">' +
+    '<input type="text" class="rc-fb w6" placeholder="fallback(POW)" value="">' +
+    '<input type="text" class="rc-lv w6" placeholder="成功等级id" value="regular">' +
+    '<input type="text" class="rc-ls w6" placeholder="成功损失" value="0">' +
+    '<input type="text" class="rc-lf w6" placeholder="失败损失" value="1d10">' +
+    '<input type="text" class="rc-fum w6" placeholder="大失败(max/表达式)" value="max">' +
+    '<input type="number" class="rc-rmin w6" placeholder="范围min" value="0">' +
+    '<input type="number" class="rc-rmax w6" placeholder="范围max" value="99">', true);
+}
+function addTableRow() {
+  var div = listRow($("t-list"),
+    '<input type="text" class="tb-id w6" placeholder="表id" value="">' +
+    '<input type="text" class="tb-name w10" placeholder="表名" value="">' +
+    '<input type="text" class="tb-roll w6" placeholder="骰式(1d10)" value="1d10">' +
+    '<textarea class="tb-rows" rows="3" placeholder="每行一条：范围|文本，如 1-2|失忆"></textarea>', true);
+  div.querySelector(".tb-rows").style.minWidth = "280px";
+}
+function addRuleRow() {
+  listRow($("r-list"),
+    '<input type="text" class="ru-id w6" placeholder="id" value="">' +
+    '<input type="text" class="ru-title w10" placeholder="标题" value="">' +
+    '<input type="text" class="ru-kw w14" placeholder="关键词,逗号分隔" value="">' +
+    '<input type="text" class="ru-text" style="flex:1;min-width:240px" placeholder="正文" value="">', true);
+}
+function toggleOpt(box, list, add) {
+  var on = $(box).checked;
+  $(list).classList.toggle("hidden", !on);
+  $(add).classList.toggle("hidden", !on);
+}
+
+// ---------- YAML generation ----------
+function ind(n) { var s = ""; for (var i = 0; i < n; i++) s += " "; return s; }
+function collectRows(listSel, cls) {
+  var out = [];
+  document.querySelectorAll(listSel + " .itemrow").forEach(function (row) { out.push(row); });
+  return out;
+}
+function field(row, cls) { var el = row.querySelector(cls); return el ? el.value.trim() : ""; }
+
+function generate() {
+  var L = [];   // lines
+  var warn = [];
+
+  // manifest
+  L.push("schema_version: \"1\"");
+  var bid = val("b-id");
+  if (!/^[a-z][a-z0-9_-]*$/.test(bid)) warn.push("规则书 id 建议为小写字母开头的英文串（当前：" + bid + "）");
+  L.push("id: " + q(bid));
+  var bname = val("b-name");
+  if (!bname) warn.push("规则书名称为空");
+  L.push("name: " + q(bname));
+  L.push("system_version: " + q(val("b-sysver")));
+  L.push("rules_version: " + q(val("b-rulver")));
+  L.push("description: " + q(val("b-desc")));
+  if ($("b-default").checked) L.push("default: true");
+  var cmds = val("b-commands");
+  if (cmds) {
+    var arr = cmds.split(/[,，]/).map(function (s) { return s.trim(); }).filter(Boolean);
+    if (arr.length) L.push("commands: [" + arr.map(q).join(", ") + "]");
+  }
+
+  // attributes
+  var attrs = collectRows("#attr-list");
+  if (!attrs.length) warn.push("至少需要一条属性");
+  L.push("attributes:");
+  attrs.forEach(function (row) {
+    var id = field(row, ".a-id"), name = field(row, ".a-name");
+    if (!id || !name) warn.push("存在 id 或名称为空的属性行");
+    var al = field(row, ".a-alias");
+    var alPart = "";
+    if (al) {
+      var als = al.split(/[,，]/).map(function (s) { return s.trim(); }).filter(Boolean);
+      if (als.length) alPart = ", aliases: [" + als.map(q).join(", ") + "]";
+    }
+    L.push("  - { id: " + q(id) + ", name: " + q(name) + alPart + " }");
+  });
+
+  // skills
+  var skills = collectRows("#skill-list");
+  if (skills.length) {
+    L.push("skills:");
+    skills.forEach(function (row) {
+      var id = field(row, ".s-id"), name = field(row, ".s-name");
+      var base = field(row, ".s-base"), expr = field(row, ".s-expr");
+      if (!id || !name) { warn.push("存在 id 或名称为空的技能行"); return; }
+      if (base !== "" && expr !== "") warn.push("技能 " + id + " 同时填了 base 与 base_expr（只能二选一）");
+      var body = [];
+      if (base !== "") body.push("base: " + base);
+      if (expr !== "") body.push("base_expr: " + q(expr));
+      if (!body.length) body.push("base: 0");
+      body.push("name: " + q(name));
+      var al = field(row, ".s-alias");
+      if (al) {
+        var als = al.split(/[,，]/).map(function (s) { return s.trim(); }).filter(Boolean);
+        if (als.length) body.push("aliases: [" + als.map(q).join(", ") + "]");
+      }
+      L.push("  " + id + ": { " + body.join(", ") + " }");
+    });
+  }
+
+  // limits
+  L.push("limits:");
+  L.push("  characteristic: { min: " + num("l-char-min") + ", max: " + num("l-char-max") + " }");
+  L.push("  skill: { min: " + num("l-skill-min") + ", max: " + num("l-skill-max") + " }");
+  L.push("  target: { min: " + num("l-tgt-min") + ", max: " + num("l-tgt-max") + " }");
+  var ctm = val("l-ct-min"), ctx = val("l-ct-max");
+  if (ctm !== "" && ctx !== "") L.push("  computed_target: { min: " + ctm + ", max: " + ctx + " }");
+
+  // mechanic
+  var preset = $("m-preset").value;
+  var roll = preset === "d100" ? "1d100" : preset === "d20" ? "1d20" : val("m-roll");
+  var meets = preset === "d100" ? "roll <= target" : preset === "d20" ? "roll >= target" : val("m-meets");
+  if (preset === "custom" && (!roll || !meets)) warn.push("自定义机制必须填写 roll 与 meets");
+  L.push("mechanic:");
+  L.push("  max_bonus_penalty: " + num("m-maxbp"));
+  L.push("  roll: " + q(roll));
+  L.push("  meets: " + q(meets));
+  L.push("  bonus_keep: " + $("m-bkeep").value);
+  L.push("  penalty_keep: " + $("m-pkeep").value);
+  L.push("  label: " + q(val("m-label")));
+  if (val("m-blabel")) L.push("  bonus_label: " + q(val("m-blabel")));
+  if (val("m-plabel")) L.push("  penalty_label: " + q(val("m-plabel")));
+
+  // levels
+  var levels = collectRows("#level-list");
+  if (levels.length < 2) warn.push("成功等级至少两档");
+  L.push("checks:");
+  L.push("  levels:");
+  levels.forEach(function (row, i) {
+    var id = field(row, ".lv-id"), name = field(row, ".lv-name"), when = field(row, ".lv-when");
+    if (!id || !name) warn.push("第 " + (i + 1) + " 档成功等级缺 id 或名称");
+    var last = i === levels.length - 1;
+    if (last && when) warn.push("最后一档（" + id + "）是兜底档，when 必须留空");
+    if (!last && !when) warn.push("非最后一档（" + id + "）缺 when 条件");
+    if (when) L.push("    - { id: " + q(id) + ", name: " + q(name) + ", when: " + q(when) + " }");
+    else L.push("    - { id: " + q(id) + ", name: " + q(name) + " }");
+  });
+  var levelIds = [];
+  levels.forEach(function (row) { var v = field(row, ".lv-id"); if (v) levelIds.push(v); });
+
+  // difficulties
+  if ($("d-on").checked) {
+    var dfs = collectRows("#d-list");
+    if (dfs.length) {
+      L.push("  difficulties:");
+      dfs.forEach(function (row) {
+        var id = field(row, ".df-id"), name = field(row, ".df-name");
+        var expr = field(row, ".df-expr"), lv = field(row, ".df-lv");
+        if (!id || !name) { warn.push("难度行缺 id 或名称"); return; }
+        if (expr && lv) warn.push("难度 " + id + " 同时填了 expr 与成功等级（只能二选一）");
+        if (!expr && !lv) warn.push("难度 " + id + " 需要填 expr 或成功等级之一");
+        if (lv && levelIds.indexOf(lv) < 0) warn.push("难度 " + id + " 的成功等级 " + lv + " 未在成功等级中声明");
+        if (expr) L.push("    - { id: " + q(id) + ", name: " + q(name) + ", expr: " + q(expr) + " }");
+        else L.push("    - { id: " + q(id) + ", name: " + q(name) + ", auto: true, success_level: " + q(lv) + " }");
+      });
+    }
+  }
+
+  // opposed
+  var fum = val("o-fumble");
+  if (fum && levelIds.indexOf(fum) < 0) warn.push("opposed.fumble_level（" + fum + "）未在成功等级中声明");
+  L.push("opposed:");
+  L.push("  fumble_level: " + fum);
+  L.push("  tie_break: " + $("o-tie").value);
+
+  // derived
+  if ($("dv-on").checked) {
+    var dvs = collectRows("#dv-list");
+    if (dvs.length) {
+      L.push("derived:");
+      L.push("  values:");
+      dvs.forEach(function (row) {
+        var id = field(row, ".dv-id"), name = field(row, ".dv-name"), f = field(row, ".dv-f");
+        if (!id || !name || !f) { warn.push("派生值行缺 id / 名称 / 公式"); return; }
+        L.push("    - { id: " + q(id) + ", name: " + q(name) + ", formula: " + q(f) + " }");
+      });
+    }
+  }
+
+  // vitals
+  if ($("v-on").checked) {
+    var vs = collectRows("#v-list");
+    if (vs.length) {
+      L.push("  vitals:");
+      vs.forEach(function (row) {
+        var res = field(row, ".v-res"), name = field(row, ".v-name");
+        var max = field(row, ".v-max"), ini = field(row, ".v-init");
+        if (!res || !max || !ini) { warn.push("资源轨行缺 轨id / max / initial"); return; }
+        var al = field(row, ".v-alias");
+        var alPart = "";
+        if (al) {
+          var als = al.split(/[,，]/).map(function (s) { return s.trim(); }).filter(Boolean);
+          if (als.length) alPart = ", aliases: [" + als.map(q).join(", ") + "]";
+        }
+        L.push("    - { resource: " + q(res) + ", name: " + q(name) + ", max: " + q(max) + ", initial: " + q(ini) + alPart + " }");
+      });
+    }
+  }
+
+  // resource checks
+  if ($("rc-on").checked) {
+    var rcs = collectRows("#rc-list");
+    if (rcs.length) {
+      L.push("resource_checks:");
+      rcs.forEach(function (row) {
+        var id = field(row, ".rc-id"), label = field(row, ".rc-label"), res = field(row, ".rc-res");
+        var fb = field(row, ".rc-fb"), lv = field(row, ".rc-lv");
+        var ls = field(row, ".rc-ls"), lf = field(row, ".rc-lf"), fumloss = field(row, ".rc-fum");
+        if (!id || !res) { warn.push("资源检定行缺 检定id / 轨id"); return; }
+        var l2 = [];
+        l2.push("label: " + q(label));
+        l2.push("resource: " + q(res));
+        if (fb) l2.push("fallback: " + q(fb));
+        if (lv) l2.push("success_level: " + q(lv));
+        l2.push("loss: { success: " + q(ls) + ", failure: " + q(lf) + " }");
+        if (fumloss) l2.push("fumble_loss: " + fumloss);
+        l2.push("range: { min: " + (field(row, ".rc-rmin") || "0") + ", max: " + (field(row, ".rc-rmax") || "99") + " }");
+        L.push("  " + id + ": { " + l2.join(", ") + " }");
+      });
+    }
+  }
+
+  // death save
+  if ($("ds-on").checked) {
+    L.push("death_save:");
+    L.push("  threshold: " + num("ds-threshold"));
+    L.push("  successes_needed: " + num("ds-succ"));
+    L.push("  failures_allowed: " + num("ds-fail"));
+    L.push("  crit_value: " + num("ds-crit"));
+    L.push("  critfail_value: " + num("ds-critfail"));
+    if (num("ds-crit") === num("ds-critfail")) warn.push("death_save：天然大成功与大失败值不能相同");
+    if (num("ds-threshold") > num("ds-crit")) warn.push("death_save：成功线不得超过天然大成功值");
+  }
+
+  // tables
+  if ($("t-on").checked) {
+    var tbs = collectRows("#t-list");
+    if (tbs.length) {
+      L.push("tables:");
+      tbs.forEach(function (row) {
+        var id = field(row, ".tb-id"), name = field(row, ".tb-name"), roll = field(row, ".tb-roll");
+        if (!id || !name || !roll) { warn.push("随机表缺 id / 名称 / 骰式"); return; }
+        L.push("  - id: " + q(id));
+        L.push("    name: " + q(name));
+        L.push("    roll: " + q(roll));
+        L.push("    rows:");
+        var any = false;
+        field2(row, ".tb-rows").split("\n").forEach(function (line) {
+          line = line.trim();
+          if (!line) return;
+          var m = line.indexOf("|");
+          if (m < 0) { warn.push("随机表 " + id + " 有行缺少「范围|文本」中的竖线"); return; }
+          var rg = line.slice(0, m).trim(), tx = line.slice(m + 1).trim();
+          L.push("      - { range: " + q(rg) + ", text: " + q(tx) + " }");
+          any = true;
+        });
+        if (!any) warn.push("随机表 " + id + " 没有任何有效行");
+      });
+    }
+  }
+
+  // growth checks
+  if ($("g-on").checked) {
+    var cond = val("g-cond"), gain = val("g-gain"), cap = num("g-cap");
+    if (!cond || !gain) warn.push("成长检定需要条件与成长量");
+    L.push("growth_checks:");
+    L.push("  default:");
+    L.push("    condition: " + q(cond));
+    L.push("    gain: " + q(gain));
+    if (cap > 0) L.push("    cap: " + cap);
+  }
+
+  // rules
+  if ($("r-on").checked) {
+    var rus = collectRows("#r-list");
+    if (rus.length) {
+      L.push("rules:");
+      rus.forEach(function (row) {
+        var id = field(row, ".ru-id"), title = field(row, ".ru-title");
+        var kw = field(row, ".ru-kw"), tx = field(row, ".ru-text");
+        if (!id || !title || !tx) { warn.push("规则速查行缺 id / 标题 / 正文"); return; }
+        L.push("  - id: " + q(id));
+        L.push("    title: " + q(title));
+        if (kw) {
+          var kws = kw.split(/[,，]/).map(function (s) { return s.trim(); }).filter(Boolean);
+          if (kws.length) L.push("    keywords: [" + kws.map(q).join(", ") + "]");
+        }
+        L.push("    text: " + q(tx));
+      });
+    }
+  }
+
+  $("out").textContent = L.join("\n") + "\n";
+  var w = $("warns");
+  if (warn.length) {
+    w.innerHTML = warn.map(function (s) { return '<div class="bad">⚠ ' + s + "</div>"; }).join("");
+  } else {
+    w.innerHTML = '<div class="ok">✓ 未发现明显问题。仍请以骰子内 <code>rule validate</code> 的结果为准。</div>';
+  }
+}
+function field2(row, cls) { var el = row.querySelector(cls); return el ? el.value : ""; }
+function copyOut() {
+  var t = $("out").textContent;
+  navigator.clipboard.writeText(t).then(function () {
+    var b = document.querySelector(".copy");
+    var old = b.textContent; b.textContent = "已复制";
+    setTimeout(function () { b.textContent = old; }, 1200);
+  });
+}
+function download() {
+  var id = val("b-id") || "rulebook";
+  var blob = new Blob([$("out").textContent], { type: "text/yaml;charset=utf-8" });
+  var a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = id + ".yaml";
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+// ---------- init ----------
+addAttrRow("STR", "力量", "臂力");
+addAttrRow("CON", "体质", "耐力");
+addAttrRow("DEX", "敏捷", "");
+addAttrRow("POW", "意志", "");
+applyPreset();
+toggleOpt("d-on", "d-list", "d-add");
+toggleOpt("v-on", "v-list", "v-add");
+toggleOpt("dv-on", "dv-list", "dv-add");
+toggleOpt("rc-on", "rc-list", "rc-add");
+toggleOpt("t-on", "t-list", "t-add");
+toggleOpt("r-on", "r-list", "r-add");
+</script>
+</body>
+</html>

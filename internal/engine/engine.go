@@ -83,12 +83,47 @@ type Book struct {
 	vitals       []compiledVitals
 	initAttrs    []compiledInitAttr
 	resChecks    map[string]*compiledResourceCheck
+	resNames     map[string]string // typing name → resource track id
+	cmdBindings  map[string]compiledBinding
 	tables       *TableSet
 	growth       *compiledGrowthChecks
 	generation   *compiledGeneration
 	pointBuy     *compiledPointBuy
 	ruleEntries  []RuleEntry
 	mechanic     *compiledMechanic
+	deathSave    *compiledDeathSave
+}
+
+// compiledDeathSave is the validated death_save block (T17b). Zero-value
+// fields were defaulted at compile time from the 5e convention.
+type compiledDeathSave struct {
+	Threshold       int
+	SuccessesNeeded int
+	FailuresAllowed int
+	CritValue       int
+	CritFailValue   int
+}
+
+// DeathSave returns the book's death-save parameters, or nil when the book
+// does not declare the mechanic. Callers answer "未声明绑定" in that case.
+func (b *Book) DeathSave() *compiledDeathSave { return b.deathSave }
+
+// RollDeathSaveDie rolls one plain die with the book's own mechanic
+// expression (no bonus/penalty) and returns the natural value plus the die's
+// upper bound (for honest message labels). Death saves and future book-level
+// rolls ride the same expression as checks, so a d100 house rule changes
+// this roll without touching Go code.
+func (b *Book) RollDeathSaveDie(ctx context.Context) (value, dieMax int, err error) {
+	const op = "engine.RollDeathSaveDie"
+	if b.mechanic == nil {
+		return 0, 0, apperr.New(op, apperr.ConfigInvalid, "rulebook declares no mechanic")
+	}
+	r, err := b.mechanic.kind.Roll(ctx, b.roller, 0, 0)
+	if err != nil {
+		return 0, 0, apperr.Wrap(op, apperr.Internal, "death save roll failed", err)
+	}
+	_, dieMax = b.mechanic.kind.RollRange()
+	return r.Value, dieMax, nil
 }
 
 type compiledLimits struct {
@@ -164,8 +199,30 @@ type compiledDerived struct {
 
 type compiledVitals struct {
 	resource string
+	name     string
+	aliases  []string
 	max      *formula.Expr
 	initial  *formula.Expr
+}
+
+// Binding kinds for compiledBinding and BindingInfo.
+const (
+	BindingKindResourceCheck = "resource_check"
+	BindingKindTable         = "table"
+)
+
+// compiledBinding is one chat-verb binding: verb → rulebook target.
+type compiledBinding struct {
+	verb   string
+	kind   string // BindingKindResourceCheck | BindingKindTable
+	target string
+}
+
+// BindingInfo describes one chat-verb binding for callers outside the engine.
+type BindingInfo struct {
+	Verb   string `json:"verb"`
+	Kind   string `json:"kind"`   // resource_check | table
+	Target string `json:"target"` // declared resource-check or table id
 }
 
 type compiledInitAttr struct {
@@ -253,6 +310,63 @@ func (b *Book) ResolveSkill(name string) (string, bool) {
 		return sk.ID, true
 	}
 	return "", false
+}
+
+// ResolveResource implements app.KeyResolver. It is the third rung of the
+// name-resolution ladder (attributes, skills, resource tracks) and accepts
+// a vitals name or alias, the raw track id, or a resource_check label.
+func (b *Book) ResolveResource(name string) (string, bool) {
+	key := strings.ToLower(strings.TrimSpace(name))
+	if key == "" {
+		return "", false
+	}
+	id, ok := b.resNames[key]
+	return id, ok
+}
+
+// ResourceDisplayName returns the vitals-declared name of a resource track
+// (理智), falling back to the track id itself.
+func (b *Book) ResourceDisplayName(resource string) string {
+	for _, v := range b.vitals {
+		if v.resource == resource {
+			if v.name != "" {
+				return v.name
+			}
+			return resource
+		}
+	}
+	return resource
+}
+
+// ResourceFallbackTarget computes the check target of a resource track that
+// does not exist on the sheet yet: the resource check's declared fallback
+// formula, else the vitals initial formula, else an error.
+func (b *Book) ResourceFallbackTarget(c *character.Character, resource string) (int, error) {
+	const op = "engine.ResourceFallbackTarget"
+	for _, rc := range b.resChecks {
+		if rc.resource == resource && rc.fallback != nil {
+			return rc.FallbackTarget(c.Attributes)
+		}
+	}
+	if d, err := b.Derive(c); err == nil {
+		for _, v := range d.Vitals {
+			if v.Resource == resource {
+				return v.Current, nil
+			}
+		}
+	}
+	return 0, apperr.New(op, apperr.InvalidArgument,
+		"resource "+resource+" not initialized and no fallback formula is declared")
+}
+
+// Binding returns the chat-verb binding declared by the rulebook (the Dice!
+// verbs sc/ti/li call whatever the book declares).
+func (b *Book) Binding(verb string) (BindingInfo, bool) {
+	cb, ok := b.cmdBindings[verb]
+	if !ok {
+		return BindingInfo{}, false
+	}
+	return BindingInfo{Verb: cb.verb, Kind: cb.kind, Target: cb.target}, true
 }
 
 // Tables returns the random tables declared by the rulebook.

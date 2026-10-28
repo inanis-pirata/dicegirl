@@ -274,9 +274,9 @@ type AdjustmentResult struct {
 // AdjustValues applies KEY±VALUE changes to the given sheet (the active
 // sheet when id is empty): the right-hand dice expression is rolled once
 // per key against the app roller, then the change goes through the same
-// validation, backup and atomic-update path as SetValues. Attribute/skill
-// keys resolve through the rulebook; resource track keys (san/hp/mp)
-// match exactly or case-insensitively.
+// validation, backup and atomic-update path as SetValues. Attribute, skill
+// and resource keys resolve through the rulebook (理智 → san); raw track
+// ids still match exactly or case-insensitively as a fallback.
 func (a *App) AdjustValues(ctx context.Context, id string, adjs []Adjustment) (*character.Character, []AdjustmentResult, error) {
 	const op = "app.AdjustValues"
 	if len(adjs) == 0 {
@@ -325,6 +325,16 @@ func (a *App) AdjustValues(ctx context.Context, id string, adjs []Adjustment) (*
 				res.Kind, res.Canonical, res.Before = "skill", canonical, current
 				c.Skills[canonical] = current + delta
 				res.After = c.Skills[canonical]
+			} else if canonical, found := resolver.ResolveResource(adj.Key); found {
+				track, exists := c.Resources[canonical]
+				if !exists {
+					return nil, nil, apperr.New(op, apperr.InvalidArgument,
+						"character is missing resource track "+canonical)
+				}
+				res.Kind, res.Canonical, res.Before = "resource", canonical, track.Current
+				track.Current = track.Current + delta
+				c.Resources[canonical] = track
+				res.After = track.Current
 			} else if track, exists := findResource(c.Resources, adj.Key); exists {
 				current := c.Resources[track]
 				res.Kind, res.Canonical, res.Before = "resource", track, current.Current
@@ -421,6 +431,14 @@ func (a *App) ShowValue(ctx context.Context, id, key string) (*ValueResult, erro
 		}
 		return &ValueResult{Key: key, Canonical: canonical, Kind: "skill", Value: v}, nil
 	}
+	if canonical, found := resolver.ResolveResource(key); found {
+		track, exists := c.Resources[canonical]
+		if !exists {
+			return nil, apperr.New(op, apperr.InvalidArgument,
+				"character is missing resource track "+canonical)
+		}
+		return &ValueResult{Key: key, Canonical: canonical, Kind: "resource", Value: track.Current, Max: track.Max}, nil
+	}
 	if track, exists := findResource(c.Resources, key); exists {
 		r := c.Resources[track]
 		return &ValueResult{Key: key, Canonical: track, Kind: "resource", Value: r.Current, Max: r.Max}, nil
@@ -478,9 +496,10 @@ func (a *App) DeleteValue(ctx context.Context, id, key string) (*character.Chara
 }
 
 // ClearValues empties the numeric values of the sheet (the active sheet when
-// id is empty): attribute and skill entries are removed and resource tracks
-// are reset to zero. The card, its ID and its name are kept; the update
-// path backs the previous file up first.
+// id is empty): attribute and skill entries are removed, resource tracks
+// are reset to zero and the creation skill-point allocation is emptied. The
+// card, its ID and its name are kept; the update path backs the previous
+// file up first.
 func (a *App) ClearValues(ctx context.Context, id string) (*character.Character, error) {
 	const op = "app.ClearValues"
 	c, err := a.GetCharacter(ctx, id)
@@ -493,6 +512,7 @@ func (a *App) ClearValues(ctx context.Context, id string) (*character.Character,
 	}
 	c.Attributes = map[string]int{}
 	c.Skills = map[string]int{}
+	c.SkillPoints = nil
 	for track, r := range c.Resources {
 		r.Current = 0
 		c.Resources[track] = r
@@ -579,14 +599,19 @@ func (a *App) ImportCharacter(ctx context.Context, data []byte, keepID bool) (*c
 }
 
 // KeyResolver is an optional RuleSystem capability: it maps user-typed
-// attribute/skill names (IDs, aliases, localized labels) to canonical sheet
-// keys. Systems that do not implement it cannot use --set on create/set.
+// attribute/skill/resource names (IDs, aliases, localized labels) to
+// canonical sheet keys. Systems that do not implement it cannot use --set on
+// create/set.
 type KeyResolver interface {
 	ResolveAttribute(name string) (canonical string, ok bool)
 	ResolveSkill(name string) (canonical string, ok bool)
+	// ResolveResource maps a resource-track name (理智, SAN) to its track id.
+	ResolveResource(name string) (canonical string, ok bool)
 }
 
 // assign resolves assignments into attributes/skills via the owning system.
+// A resource-track key (理智=40) sets the track's current value; the track
+// must already exist on the sheet (`st derived --init` creates it).
 func (a *App) assign(sys rules.RuleSystem, c *character.Character, sets []Assignment) error {
 	if len(sets) == 0 {
 		return nil
@@ -609,9 +634,20 @@ func (a *App) assign(sys rules.RuleSystem, c *character.Character, sets []Assign
 					c.Skills = map[string]int{}
 				}
 				c.Skills[canonical] = set.Value
+			} else if canonical, found := resolver.ResolveResource(set.Key); found {
+				track, exists := c.Resources[canonical]
+				if !exists {
+					return apperr.New("app.assign", apperr.InvalidArgument,
+						"character is missing resource track "+canonical+"（st derived --init 可初始化）")
+				}
+				track.Current = set.Value
+				if c.Resources == nil {
+					c.Resources = map[string]character.Resource{}
+				}
+				c.Resources[canonical] = track
 			} else {
 				return apperr.New("app.assign", apperr.InvalidArgument,
-					fmt.Sprintf("unknown characteristic or skill: %s", set.Key))
+					fmt.Sprintf("unknown characteristic, skill or resource: %s", set.Key))
 			}
 		}
 	}

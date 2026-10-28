@@ -34,6 +34,10 @@ type Character struct {
 	Attributes    map[string]int      `yaml:"attributes"`
 	Skills        map[string]int      `yaml:"skills"`
 	Resources     map[string]Resource `yaml:"resources,omitempty"`
+	// SkillPoints records creation-time point allocation per skill-point
+	// pool (pool id → skill id → points spent). It is the bookkeeping the
+	// skill-point pools' budget and refunds run on.
+	SkillPoints map[string]map[string]int `yaml:"skill_points,omitempty"`
 	// Macros holds named dice expressions saved on the card (Dice!
 	// `.st &名=表达式`); they are rolled by name.
 	Macros    map[string]string `yaml:"macros,omitempty"`
@@ -118,6 +122,20 @@ func (c *Character) Validate() error {
 				"resource "+k+" current value exceeds its maximum")
 		}
 	}
+	for pool, spends := range c.SkillPoints {
+		if pool == "" {
+			return apperr.New(op, apperr.ValidationError, "empty skill-point pool key")
+		}
+		for skill, n := range spends {
+			if skill == "" {
+				return apperr.New(op, apperr.ValidationError, "empty skill key in pool "+pool)
+			}
+			if n <= 0 {
+				return apperr.New(op, apperr.ValidationError,
+					"skill_points "+pool+"/"+skill+" must be positive")
+			}
+		}
+	}
 	return nil
 }
 
@@ -138,6 +156,12 @@ func (c *Character) Clone() *Character {
 		cp.Resources = make(map[string]Resource, len(c.Resources))
 		for k, v := range c.Resources {
 			cp.Resources[k] = v
+		}
+	}
+	if c.SkillPoints != nil {
+		cp.SkillPoints = make(map[string]map[string]int, len(c.SkillPoints))
+		for pool, spends := range c.SkillPoints {
+			cp.SkillPoints[pool] = cloneIntMap(spends)
 		}
 	}
 	if c.Extra != nil {

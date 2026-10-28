@@ -79,6 +79,10 @@ type CheckInput struct {
 	Penalty   int
 	SkillName string
 	AttrName  string
+	// ResourceName labels a resource-track check (ra 理智) and ResourceID is
+	// the track's canonical id (empty for skill/attribute checks).
+	ResourceName string
+	ResourceID   string
 	// SkillID and AttrID are the canonical ids of the checked skill or
 	// characteristic (empty for a target-only check). They are the stable
 	// key of the check (used by the roll statistics).
@@ -106,6 +110,9 @@ type CheckResult struct {
 	Penalty   int    `json:"penalty"`
 	SkillName string `json:"skill_name,omitempty"`
 	AttrName  string `json:"attr_name,omitempty"`
+	// ResourceName and ResourceID label a resource-track check (ra 理智).
+	ResourceName string `json:"resource_name,omitempty"`
+	ResourceID   string `json:"resource_id,omitempty"`
 	// SkillID and AttrID are the canonical ids of the checked skill or
 	// characteristic (the stable key of the check).
 	SkillID string `json:"skill_id,omitempty"`
@@ -324,19 +331,21 @@ func (b *Book) Check(ctx context.Context, in CheckInput) (*CheckResult, error) {
 	}
 
 	res := &CheckResult{
-		Kind:      "check",
-		SystemID:  b.manifest.ID,
-		Target:    effectiveTarget,
-		Level:     rank,
-		LevelCode: b.levels[rank].id,
-		Label:     b.levels[rank].name,
-		RawRoll:   raw,
-		Bonus:     in.Bonus,
-		Penalty:   in.Penalty,
-		SkillName: in.SkillName,
-		AttrName:  in.AttrName,
-		SkillID:   in.SkillID,
-		AttrID:    in.AttrID,
+		Kind:         "check",
+		SystemID:     b.manifest.ID,
+		Target:       effectiveTarget,
+		Level:        rank,
+		LevelCode:    b.levels[rank].id,
+		Label:        b.levels[rank].name,
+		RawRoll:      raw,
+		Bonus:        in.Bonus,
+		Penalty:      in.Penalty,
+		SkillName:    in.SkillName,
+		AttrName:     in.AttrName,
+		ResourceName: in.ResourceName,
+		ResourceID:   in.ResourceID,
+		SkillID:      in.SkillID,
+		AttrID:       in.AttrID,
 		RollDetail: &RollDetail{
 			Mechanic:  b.mechanic.kind.ID(),
 			Value:     mech.Value,
@@ -435,7 +444,7 @@ func absInt(v int) int {
 
 func (b *Book) explainCheck(in CheckInput, r *CheckResult, detailText string) string {
 	var sb strings.Builder
-	label := firstNonEmpty(in.SkillName, in.AttrName, "检定")
+	label := firstNonEmpty(in.SkillName, in.AttrName, in.ResourceName, "检定")
 	if r.DifficultyName != "" {
 		label += "（" + r.DifficultyName + "）"
 	}

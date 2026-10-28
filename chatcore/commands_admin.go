@@ -369,14 +369,16 @@ func cmdDerived(ctx context.Context, args []string, a *app.App, r *Renderer, std
 		fmt.Fprintln(stderr, "用法：st derived [--character <名字|id>] [--init] [--force]")
 		return 2
 	}
+	explicit := *characterID != ""
 	useDefaultCharacter(ctx, characterID)
-	id, err := cardRef(ctx, a, *characterID)
+	tgt, err := flagTarget(ctx, a, *characterID, explicit)
 	if err != nil {
 		return PrintError(stderr, err)
 	}
+	ctx = withTarget(ctx, tgt)
 	d, _, err := a.RunDerived(ctx, app.DerivedOptions{
 		SystemID:    *system,
-		CharacterID: id,
+		CharacterID: tgt.CardID,
 		Initialize:  *init,
 		Overwrite:   *force,
 	})
@@ -389,28 +391,100 @@ func cmdDerived(ctx context.Context, args []string, a *app.App, r *Renderer, std
 	return 0
 }
 
-// cmdOpposed runs an opposed check between two target values.
+// cmdSkillAlloc manages the creation skill-point pools (st alloc): the
+// pools the rulebook declares for the card's generation variant, the
+// spending of pool points on skills and the deterministic reset.
 //
-//	rav <A值> <B值> [--system <规则书>]
+//	st alloc                        查看点池
+//	st alloc <池> <技能>±<点数>...    加点 / 退点（点数必须是整数）
+//	st alloc clr                    重置全部加点（技能回落基础值）
+func cmdSkillAlloc(ctx context.Context, args []string, a *app.App, r *Renderer, stderr io.Writer) int {
+	if len(args) == 0 {
+		view, err := a.SkillPointPools(ctx, currentCharacter(ctx))
+		if err != nil {
+			return PrintError(stderr, err)
+		}
+		if err := r.SkillPools(view); err != nil {
+			return PrintError(stderr, err)
+		}
+		return 0
+	}
+	if args[0] == "clr" {
+		if len(args) != 1 {
+			fmt.Fprintln(stderr, "用法：st alloc clr")
+			return 2
+		}
+		_, view, err := a.ClearSkillPoints(ctx, currentCharacter(ctx))
+		if err != nil {
+			return PrintError(stderr, err)
+		}
+		if err := r.SkillPoolsCleared(view); err != nil {
+			return PrintError(stderr, err)
+		}
+		return 0
+	}
+	if len(args) < 2 {
+		fmt.Fprintln(stderr, "用法：st alloc [池 技能±点数...｜clr]")
+		return 2
+	}
+	spends := make([]app.SkillSpend, 0, len(args)-1)
+	for _, tok := range args[1:] {
+		spend, err := app.ParseSkillSpend(tok)
+		if err != nil {
+			return PrintError(stderr, err)
+		}
+		spends = append(spends, spend)
+	}
+	_, results, _, err := a.AllocateSkillPoints(ctx, currentCharacter(ctx), args[0], spends)
+	if err != nil {
+		return PrintError(stderr, err)
+	}
+	if err := r.SkillAllocation(results); err != nil {
+		return PrintError(stderr, err)
+	}
+	return 0
+}
+
+// cmdOpposed runs an opposed check between two sides. Each side is an
+// explicit target value or a sheet-value name resolved through the
+// rulebook (Dice! convention: `rav 侦查 60`, `rav 力量 力量`).
+//
+//	rav <名或值> <名或值> [--system <规则书>] [--character <名字|id>]
 func cmdOpposed(ctx context.Context, args []string, a *app.App, r *Renderer, stderr io.Writer) int {
 	fs := flag.NewFlagSet("rav", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	system := fs.String("system", "", "规则书 ID（默认角色所属）")
+	characterID := fs.String("character", "", "角色名或 ID（默认当前角色）")
 	if err := parseSub(fs, args); err != nil {
 		return 2
 	}
 	if fs.NArg() != 2 {
-		fmt.Fprintln(stderr, "用法：rav <A值> <B值> [--system <规则书>]")
+		fmt.Fprintln(stderr, "用法：rav <名或值> <名或值> [--system <规则书>] [--character <名字|id>]")
 		return 2
 	}
+	explicit := *characterID != ""
+	useDefaultCharacter(ctx, characterID)
+	tgt, err := flagTarget(ctx, a, *characterID, explicit)
+	if err != nil {
+		return PrintError(stderr, err)
+	}
+	*characterID = tgt.CardID
+	ctx = withTarget(ctx, tgt)
 	var values [2]int
 	for i, tok := range fs.Args() {
-		n, err := ParseInt64(tok)
-		if err != nil || n < 0 {
-			fmt.Fprintf(stderr, "对抗检定需要两个非负整数目标值，得到 %q\n", tok)
-			return 2
+		if n, err := ParseInt64(tok); err == nil {
+			if n < 0 {
+				fmt.Fprintf(stderr, "对抗检定需要两个非负整数目标值，得到 %q\n", tok)
+				return 2
+			}
+			values[i] = int(n)
+			continue
 		}
-		values[i] = int(n)
+		v, err := a.ResolveTargetValue(ctx, *system, *characterID, tok)
+		if err != nil {
+			return PrintError(stderr, err)
+		}
+		values[i] = v
 	}
 	res, err := a.RunOpposed(ctx, *system, values[0], values[1])
 	if err != nil {
@@ -653,16 +727,18 @@ func cmdPCMeta(ctx context.Context, args []string, a *app.App, r *Renderer, stde
 		fmt.Fprintln(stderr, "用法：pc meta [--character <名字|id>] <键> [值]")
 		return 2
 	}
+	explicit := *characterID != ""
 	useDefaultCharacter(ctx, characterID)
-	id, err := cardRef(ctx, a, *characterID)
+	tgt, err := flagTarget(ctx, a, *characterID, explicit)
 	if err != nil {
 		return PrintError(stderr, err)
 	}
+	ctx = withTarget(ctx, tgt)
 	key, value := fs.Arg(0), ""
 	if fs.NArg() == 2 {
 		value = fs.Arg(1)
 	}
-	c, err := a.SetCharacterMeta(ctx, id, key, value)
+	c, err := a.SetCharacterMeta(ctx, tgt.CardID, key, value)
 	if err != nil {
 		return PrintError(stderr, err)
 	}
@@ -685,21 +761,47 @@ func cmdPCMeta(ctx context.Context, args []string, a *app.App, r *Renderer, stde
 //	rule sections [--system <规则书>]
 //	rule new <新ID> --from <基础规则书>
 //	rule patch '<JSON>'｜rule patch --file <路径>
+//	rule add --file <路径> [--force]     安装用户规则书（QQ 里先发文件再 rule add）
+//	rule del <id>                        卸载用户规则书（内置与在用规则书拒绝删除）
 func cmdRule(ctx context.Context, args []string, a *app.App, r *Renderer, stderr io.Writer) int {
 	fs := flag.NewFlagSet("rule", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	system := fs.String("system", "", "规则书 ID（默认角色所属）")
 	from := fs.String("from", "", "基础规则书 ID")
 	base := fs.String("base", "", "基础规则书 ID")
-	file := fs.String("file", "", "Patch JSON 文件路径")
+	file := fs.String("file", "", "Patch JSON / 规则书 YAML 文件路径")
+	force := fs.Bool("force", false, "覆盖同名用户规则书")
 	if err := parseSub(fs, args); err != nil {
 		return 2
 	}
 	if fs.NArg() < 1 {
-		fmt.Fprintln(stderr, "用法：rule list｜rule validate｜rule ref ...｜rule show ...｜rule sections｜rule new ...｜rule patch ...")
+		fmt.Fprintln(stderr, "用法：rule list｜rule validate｜rule ref ...｜rule show ...｜rule sections｜rule new ...｜rule patch ...｜rule add ...｜rule del <id>")
 		return 2
 	}
 	switch fs.Arg(0) {
+	case "add", "install", "upload":
+		if *file == "" {
+			fmt.Fprintln(stderr, "用法：rule add --file <规则书.yaml> [--force]")
+			return 2
+		}
+		data, rerr := os.ReadFile(*file)
+		if rerr != nil {
+			return PrintError(stderr, apperr.Wrap("chatcore.rule", apperr.StorageReadFailed, "cannot read "+*file, rerr))
+		}
+		id, err := a.InstallRulebook(ctx, data, *force)
+		if err != nil {
+			return PrintError(stderr, err)
+		}
+		return PrintError(stderr, r.SimpleMessage("已安装规则书 "+id+"（rule list 查看；rule validate 可再校验）"))
+	case "del", "remove", "uninstall":
+		if fs.NArg() != 2 {
+			fmt.Fprintln(stderr, "用法：rule del <规则书id>")
+			return 2
+		}
+		if err := a.UninstallRulebook(ctx, fs.Arg(1)); err != nil {
+			return PrintError(stderr, err)
+		}
+		return PrintError(stderr, r.SimpleMessage("已卸载规则书 "+fs.Arg(1)))
 	case "list":
 		if fs.NArg() != 1 {
 			fmt.Fprintln(stderr, "用法：rule list")
@@ -834,7 +936,7 @@ func cmdRule(ctx context.Context, args []string, a *app.App, r *Renderer, stderr
 		}
 		return PrintError(stderr, r.SimpleMessage("已创建规则书 "+fs.Arg(1)))
 	default:
-		fmt.Fprintln(stderr, "用法：rule list｜rule validate｜rule ref ...｜rule show ...｜rule sections｜rule new ...｜rule patch ...")
+		fmt.Fprintln(stderr, "用法：rule list｜rule validate｜rule ref ...｜rule show ...｜rule sections｜rule new ...｜rule patch ...｜rule add ...｜rule del <id>")
 		return 2
 	}
 }
@@ -864,6 +966,75 @@ func cmdPCCopyOnto(ctx context.Context, args []string, a *app.App, r *Renderer, 
 		return PrintError(stderr, err)
 	}
 	if err := r.Character(c); err != nil {
+		return PrintError(stderr, err)
+	}
+	return 0
+}
+
+// cmdDeathSave is the T17b death save (`ds`): one roll of the book's
+// mechanic die, counters persisted on the card. Parameters (threshold, caps,
+// crit values) are rulebook data; the tally is card state.
+//
+//	ds                     掷一次死亡豁免
+//	ds reset               清空计数（伤势稳定 / 角色死亡 / 重新倒地时用）
+func cmdDeathSave(ctx context.Context, args []string, a *app.App, r *Renderer, stderr io.Writer) int {
+	fs := flag.NewFlagSet("ds", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	system := fs.String("system", "", "规则书 ID（默认角色所属）")
+	characterID := fs.String("character", "", "角色名或 ID（默认当前角色）")
+	if err := parseSub(fs, args); err != nil {
+		return 2
+	}
+	explicit := *characterID != ""
+	useDefaultCharacter(ctx, characterID)
+	tgt, err := flagTarget(ctx, a, *characterID, explicit)
+	if err != nil {
+		return PrintError(stderr, err)
+	}
+	ctx = withTarget(ctx, tgt)
+
+	if fs.Arg(0) == "reset" {
+		if err := a.ResetDeathSave(ctx, *system, tgt.CardID); err != nil {
+			return PrintError(stderr, err)
+		}
+		if err := r.SimpleMessage("死亡豁免计数已清空"); err != nil {
+			return PrintError(stderr, err)
+		}
+		return 0
+	}
+	if fs.NArg() > 0 {
+		fmt.Fprintln(stderr, "用法：ds [--character <名字|id>] ｜ ds reset")
+		return 2
+	}
+	out, err := a.RunDeathSave(ctx, *system, tgt.CardID)
+	if err != nil {
+		return PrintError(stderr, err)
+	}
+
+	var verdict string
+	switch {
+	case out.Crit:
+		verdict = "天然 " + strconv.Itoa(out.Roll) + "：恢复 1 HP 起身，计数清空"
+		if !out.RestoredHP {
+			verdict += "（卡上没有 hp 轨道，仅清空计数）"
+		}
+	case out.CritFail:
+		verdict = "天然 " + strconv.Itoa(out.Roll) + "：一次计两次失败"
+	case out.Success:
+		verdict = strconv.Itoa(out.Roll) + " ≥ " + strconv.Itoa(out.Threshold) + "：成功"
+	default:
+		verdict = strconv.Itoa(out.Roll) + " < " + strconv.Itoa(out.Threshold) + "：失败"
+	}
+	status := ""
+	switch {
+	case out.Died:
+		status = "—— 角色死亡"
+	case out.Stabilised:
+		status = "—— 伤势稳定"
+	}
+	if err := r.SimpleMessage("死亡豁免 d" + strconv.Itoa(out.DieMax) + " = " + strconv.Itoa(out.Roll) + " → " + verdict +
+		"\n计数：成功 " + strconv.Itoa(out.Successes) + "/" + strconv.Itoa(out.Needed) +
+		"，失败 " + strconv.Itoa(out.Failures) + "/" + strconv.Itoa(out.Allowed) + status); err != nil {
 		return PrintError(stderr, err)
 	}
 	return 0

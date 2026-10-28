@@ -105,3 +105,38 @@ func TestDefaultID(t *testing.T) {
 		t.Fatalf("default = %q, want dnd5e", got)
 	}
 }
+
+func TestUnregister(t *testing.T) {
+	r := NewRegistry()
+	ctx := context.Background()
+	if err := r.Register(ctx, stubSystem{manifest: validManifest("a")}); err != nil {
+		t.Fatalf("register a: %v", err)
+	}
+	if err := r.Unregister("missing"); err == nil {
+		t.Fatal("unregister of unknown id must fail")
+	}
+	if err := r.Unregister("a"); err != nil {
+		t.Fatalf("unregister a: %v", err)
+	}
+	if _, ok := r.Get("a"); ok {
+		t.Fatal("a must be gone")
+	}
+	// Unregistering the default clears the default selection.
+	if err := r.Register(ctx, stubSystem{manifest: withDefault(validManifest("d"))}); err != nil {
+		t.Fatalf("register d: %v", err)
+	}
+	if r.DefaultID() != "d" {
+		t.Fatalf("default = %q", r.DefaultID())
+	}
+	if err := r.Unregister("d"); err != nil {
+		t.Fatalf("unregister d: %v", err)
+	}
+	if r.DefaultID() != "" {
+		t.Fatalf("default must be cleared, got %q", r.DefaultID())
+	}
+}
+
+func withDefault(m Manifest) Manifest {
+	m.Default = true
+	return m
+}

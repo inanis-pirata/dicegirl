@@ -26,3 +26,11 @@ bot.env
 .vscode/
 .DS_Store
 Thumbs.db
+
+# Generated product/design analysis docs (local working notes, not for remote;
+# remote only keeps docs/user-manual.md)
+/docs/product/
+/docs/design/
+
+# Agent session workspace
+/.workbuddy/

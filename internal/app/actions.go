@@ -15,9 +15,11 @@ import (
 type CheckTarget struct {
 	SystemID    string
 	CharacterID string
-	// Skill or Attr is the skill/characteristic name (ID or localized label).
-	Skill string
-	Attr  string
+	// Skill, Attr or Resource is the skill/characteristic/resource-track
+	// name (ID or localized label); Resource addresses a track such as san.
+	Skill    string
+	Attr     string
+	Resource string
 	// Value is an explicit target; Explicit marks that --target was given
 	// (target 0 is a legal value in some rulebooks).
 	Value    int
@@ -87,6 +89,8 @@ func (a *App) recordCheck(ctx context.Context, cardID string, book *engine.Book,
 	case key != "":
 	case in.AttrID != "":
 		key, kind, name = in.AttrID, storage.StatKindAttribute, in.AttrName
+	case in.ResourceID != "":
+		key, kind, name = in.ResourceID, storage.StatKindResource, in.ResourceName
 	default:
 		// A target-only check has no subject to aggregate by.
 		return nil
@@ -196,6 +200,45 @@ func (a *App) resolveCheck(ctx context.Context, t CheckTarget) (*engine.Book, en
 			Difficulty: diff,
 			Adjust:     t.Adjust,
 		}, c.ID, nil
+	case t.Resource != "":
+		// A resource-track check (ra 理智): the target is the track's
+		// current value, or the rulebook's fallback formula when the sheet
+		// has no track yet (the same chain the sc path uses).
+		c, err := a.GetCharacter(ctx, t.CharacterID)
+		if err != nil {
+			return nil, engine.CheckInput{}, "", err
+		}
+		book, err := a.selectSystem(ctx, t.SystemID, c)
+		if err != nil {
+			return nil, engine.CheckInput{}, "", err
+		}
+		diff, err := resolveDifficulty(book, t.Difficulty)
+		if err != nil {
+			return nil, engine.CheckInput{}, "", err
+		}
+		track, ok := book.ResolveResource(t.Resource)
+		if !ok {
+			return nil, engine.CheckInput{}, "", apperr.New("app.RunCheck", apperr.InvalidArgument,
+				"unknown resource: "+t.Resource)
+		}
+		target := 0
+		if r, has := c.Resources[track]; has {
+			target = r.Current
+		} else {
+			target, err = book.ResourceFallbackTarget(c, track)
+			if err != nil {
+				return nil, engine.CheckInput{}, "", err
+			}
+		}
+		return book, engine.CheckInput{
+			Target:       target,
+			Bonus:        t.Bonus,
+			Penalty:      t.Penalty,
+			ResourceName: book.ResourceDisplayName(track),
+			ResourceID:   track,
+			Difficulty:   diff,
+			Adjust:       t.Adjust,
+		}, c.ID, nil
 	default:
 		return nil, engine.CheckInput{}, "", apperr.New("app.RunCheck", apperr.InvalidArgument,
 			"check requires --skill, --attr or --target")
@@ -235,23 +278,73 @@ func (a *App) Difficulties(ctx context.Context, systemID, characterID string) ([
 	return book.Difficulties(), nil
 }
 
-// ResolveCheckName disambiguates a free-form check name (command
-// syntax has no --skill/--attr split): it returns the canonical skill id or
-// attribute id the name refers to in the rulebook applicable to the
-// (active) character context. Exactly one return id is non-empty.
-func (a *App) ResolveCheckName(ctx context.Context, systemID, characterID, name string) (skillID, attrID string, err error) {
+// ResourceCheckBinding returns the resource-check id a chat verb (sc) is
+// bound to in the rulebook applicable to the (active) character context.
+func (a *App) ResourceCheckBinding(ctx context.Context, systemID, characterID, verb string) (string, error) {
 	book, _, err := a.skillContext(ctx, systemID, characterID)
 	if err != nil {
-		return "", "", err
+		return "", err
+	}
+	b, ok := book.Binding(verb)
+	if !ok || b.Kind != engine.BindingKindResourceCheck {
+		return "", apperr.New("app.ResourceCheckBinding", apperr.InvalidArgument,
+			"当前规则书未声明 "+verb+" 绑定")
+	}
+	return b.Target, nil
+}
+
+// TableBinding returns the table id a chat verb (ti/li) is bound to in the
+// applicable rulebook.
+func (a *App) TableBinding(ctx context.Context, systemID, verb string) (string, error) {
+	book, err := a.selectSystem(ctx, systemID, nil)
+	if err != nil {
+		return "", err
+	}
+	b, ok := book.Binding(verb)
+	if !ok || b.Kind != engine.BindingKindTable {
+		return "", apperr.New("app.TableBinding", apperr.InvalidArgument,
+			"当前规则书未声明 "+verb+" 绑定")
+	}
+	return b.Target, nil
+}
+
+// ResolveTargetValue resolves a free-form check name to its sheet value
+// (the opposed-check shorthand `rav 侦查 60`): skill, characteristic or
+// resource track, through the same resolution as a named check.
+func (a *App) ResolveTargetValue(ctx context.Context, systemID, characterID, name string) (int, error) {
+	skillID, attrID, resourceID, err := a.ResolveCheckName(ctx, systemID, characterID, name)
+	if err != nil {
+		return 0, err
+	}
+	t := CheckTarget{SystemID: systemID, CharacterID: characterID, Skill: skillID, Attr: attrID, Resource: resourceID}
+	_, in, _, err := a.resolveCheck(ctx, t)
+	if err != nil {
+		return 0, err
+	}
+	return in.Target, nil
+}
+
+// ResolveCheckName disambiguates a free-form check name (command
+// syntax has no --skill/--attr split): it returns the canonical skill id,
+// attribute id or resource-track id the name refers to in the rulebook
+// applicable to the (active) character context. Exactly one return id is
+// non-empty.
+func (a *App) ResolveCheckName(ctx context.Context, systemID, characterID, name string) (skillID, attrID, resourceID string, err error) {
+	book, _, err := a.skillContext(ctx, systemID, characterID)
+	if err != nil {
+		return "", "", "", err
 	}
 	if def, ok := book.FindSkill(name); ok {
-		return def.ID, "", nil
+		return def.ID, "", "", nil
 	}
 	if def, ok := book.FindAttribute(name); ok {
-		return "", def.ID, nil
+		return "", def.ID, "", nil
 	}
-	return "", "", apperr.New("app.ResolveCheckName", apperr.InvalidArgument,
-		"unknown skill or characteristic: "+name)
+	if track, ok := book.ResolveResource(name); ok {
+		return "", "", track, nil
+	}
+	return "", "", "", apperr.New("app.ResolveCheckName", apperr.InvalidArgument,
+		"unknown skill, characteristic or resource: "+name)
 }
 
 // skillContext returns the rulebook and (optionally) the character that
@@ -334,7 +427,7 @@ func (a *App) RunResourceCheck(ctx context.Context, o ResourceOptions) (*engine.
 	if r, ok := c.Resources[rc.Resource()]; ok {
 		before = r.Current
 	} else {
-		before, err = rc.FallbackTarget(c.Attributes)
+		before, err = book.ResourceFallbackTarget(c, rc.Resource())
 		if err != nil {
 			return nil, err
 		}
@@ -365,14 +458,14 @@ func (a *App) RunResourceCheck(ctx context.Context, o ResourceOptions) (*engine.
 	if err != nil {
 		return nil, err
 	}
-	// The resource check counts towards the card's statistics (its own
-	// key, e.g. "sanity").
+	// The resource check counts towards the card's statistics under its
+	// resource track id (san), like a resource-targeted check would.
 	if res.Check != nil {
 		if err := a.stats.Record(ctx, storage.StatRecord{
 			CardID:    c.ID,
-			Key:       o.CheckID,
+			Key:       rc.Resource(),
 			Kind:      storage.StatKindResource,
-			Name:      rc.Label(),
+			Name:      book.ResourceDisplayName(rc.Resource()),
 			Target:    res.Check.Target,
 			Roll:      res.Check.RawRoll,
 			LevelCode: res.Check.LevelCode,
@@ -454,15 +547,24 @@ func (a *App) RunDerived(ctx context.Context, o DerivedOptions) (*engine.Derived
 
 // applyDerived records the rulebook-derived initial resource tracks and
 // initial attributes on a sheet, validates and persists it. With overwrite,
-// tracks that already exist are reset; otherwise only missing tracks are
-// created. Initial attributes are always only filled in when missing.
+// tracks that already exist are reset; otherwise an existing track keeps its
+// current value but its maximum is refreshed from the formulas (contract
+// §9.4: a level-up changes max_hp, not the HP you still have). Current is
+// clamped into the new range. Initial attributes are always only filled in
+// when missing.
 func (a *App) applyDerived(ctx context.Context, book *engine.Book, c *character.Character, d *engine.DerivedResult, overwrite bool) error {
 	if c.Resources == nil {
 		c.Resources = map[string]character.Resource{}
 	}
 	for _, v := range d.Vitals {
 		if !overwrite {
-			if _, exists := c.Resources[v.Resource]; exists {
+			if existing, exists := c.Resources[v.Resource]; exists {
+				refreshed := existing
+				refreshed.Max = v.Max
+				if refreshed.Current > refreshed.Max {
+					refreshed.Current = refreshed.Max
+				}
+				c.Resources[v.Resource] = refreshed
 				continue
 			}
 		}

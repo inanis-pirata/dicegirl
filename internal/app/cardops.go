@@ -67,6 +67,7 @@ func (a *App) CopyCharacterProperties(ctx context.Context, targetID, sourceID st
 	target.Skills = cp.Skills
 	target.Resources = cp.Resources
 	target.Macros = cp.Macros
+	target.SkillPoints = cp.SkillPoints
 	if err := target.Validate(); err != nil {
 		return nil, err
 	}

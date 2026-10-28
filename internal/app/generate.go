@@ -37,8 +37,11 @@ type GeneratedSheet struct {
 	PointBuy   *engine.PointBuyReport `json:"point_buy,omitempty"`
 	// Vitals are the rulebook-derived resource tracks recorded on the card
 	// during creation (initial and maximum values, declaration order).
-	Vitals      []engine.VitalsValue `json:"vitals,omitempty"`
-	Explanation string               `json:"explanation"`
+	Vitals []engine.VitalsValue `json:"vitals,omitempty"`
+	// SkillPools are the creation skill-point pools of the generation
+	// variant (points totals the player allocates with `st alloc`).
+	SkillPools  []engine.SkillPoolReport `json:"skill_pools,omitempty"`
+	Explanation string                   `json:"explanation"`
 }
 
 // GenerateResult is the application-level result of a generation request.
@@ -109,6 +112,19 @@ func (a *App) GenerateCharacters(ctx context.Context, o GenerateOptions) (*Gener
 		if derived != nil {
 			vitals = derived.Vitals
 		}
+		// The skill-point pools belong to the generation variant; record it
+		// on the card so later `st alloc` uses the variant's declaration.
+		var skillPools []engine.SkillPoolReport
+		if pools, err := book.SkillPointPools(gen.VariantID, card); err == nil && pools != nil {
+			if card.Metadata == nil {
+				card.Metadata = map[string]string{}
+			}
+			card.Metadata[GenerationVariantMetaKey] = gen.VariantID
+			if err := a.chars.Update(ctx, card); err != nil {
+				return nil, err
+			}
+			skillPools = pools
+		}
 		res.Characters = append(res.Characters, &GeneratedSheet{
 			Name:        card.Name,
 			ID:          card.ID,
@@ -116,6 +132,7 @@ func (a *App) GenerateCharacters(ctx context.Context, o GenerateOptions) (*Gener
 			Rolls:       c.Rolls,
 			PointBuy:    c.PointBuy,
 			Vitals:      vitals,
+			SkillPools:  skillPools,
 			Explanation: c.Explanation,
 		})
 	}
@@ -183,6 +200,19 @@ func (a *App) RedoCharacter(ctx context.Context, characterID, variantID string) 
 		c.Attributes[attr] = v
 	}
 	c.Skills = map[string]int{}
+	// A regenerated card is creation-fresh: the old skill allocation (and
+	// its variant) no longer matches the new characteristics.
+	c.SkillPoints = nil
+	var skillPools []engine.SkillPoolReport
+	if pools, err := book.SkillPointPools(gen.VariantID, c); err == nil && pools != nil {
+		if c.Metadata == nil {
+			c.Metadata = map[string]string{}
+		}
+		c.Metadata[GenerationVariantMetaKey] = gen.VariantID
+		skillPools = pools
+	} else if c.Metadata != nil {
+		delete(c.Metadata, GenerationVariantMetaKey)
+	}
 	if err := c.Validate(); err != nil {
 		return nil, nil, err
 	}
@@ -212,6 +242,7 @@ func (a *App) RedoCharacter(ctx context.Context, characterID, variantID string) 
 		Rolls:       gc.Rolls,
 		PointBuy:    gc.PointBuy,
 		Vitals:      d.Vitals,
+		SkillPools:  skillPools,
 		Explanation: gc.Explanation,
 	}, updated, nil
 }

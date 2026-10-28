@@ -135,6 +135,8 @@ func compileExprMechanic(op string, raw rawMechanic) (Mechanic, error) {
 		bonusHighest:   bonusHighest,
 		penaltyHighest: penaltyHighest,
 		label:          label,
+		bonusLabel:     strings.TrimSpace(raw.BonusLabel),
+		penaltyLabel:   strings.TrimSpace(raw.PenaltyLabel),
 		min:            lo,
 		max:            hi,
 	}, nil
@@ -167,7 +169,11 @@ type exprMechanic struct {
 	bonusHighest   bool
 	penaltyHighest bool
 	label          string
-	min, max       int
+	// bonusLabel/penaltyLabel rename the effect in explanations (5e: 优势/劣势).
+	// Empty means the generic 奖励骰/惩罚骰.
+	bonusLabel   string
+	penaltyLabel string
+	min, max     int
 }
 
 // ID implements Mechanic. The family is named by how it resolves checks;
@@ -223,7 +229,8 @@ func (m *exprMechanic) Roll(ctx context.Context, roller Roller, bonus, penalty i
 }
 
 // Apply implements Mechanic: it renders each trial and the counted one, so
-// the result reads like the built-in d20 detail (e.g. "奖励骰 d20 【19】/5").
+// the result reads like the built-in d20 detail (e.g. "奖励骰 d20 【19】/5",
+// or a book's own naming such as "优势 d20 5/【9】").
 func (m *exprMechanic) Apply(_ *CheckResult, r *MechanicRoll) string {
 	if len(r.Dice) == 0 {
 		return ""
@@ -243,7 +250,7 @@ func (m *exprMechanic) Apply(_ *CheckResult, r *MechanicRoll) string {
 	if r.Effect == "bonus" && m.bonusHighest || r.Effect == "penalty" && m.penaltyHighest {
 		keep = "取高"
 	}
-	return fmt.Sprintf("（%s %s %s，%s）", effectLabel(r.Effect), m.label,
+	return fmt.Sprintf("（%s %s %s，%s）", m.effectLabel(r.Effect), m.label,
 		strings.Join(parts, "/"), keep)
 }
 
@@ -259,12 +266,19 @@ func effectOf(net int) string {
 	}
 }
 
-// effectLabel renders the effect for the explanation.
-func effectLabel(effect string) string {
+// effectLabel renders the effect for the explanation. Book-level renames
+// (5e 优势/劣势) take precedence; the generic 奖励骰/惩罚骰 is the fallback.
+func (m *exprMechanic) effectLabel(effect string) string {
 	switch effect {
 	case "bonus":
+		if m.bonusLabel != "" {
+			return m.bonusLabel
+		}
 		return "奖励骰"
 	case "penalty":
+		if m.penaltyLabel != "" {
+			return m.penaltyLabel
+		}
 		return "惩罚骰"
 	default:
 		return ""

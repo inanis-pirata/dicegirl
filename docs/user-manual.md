@@ -281,7 +281,7 @@ ra [选项] [难度] [n#] [技能/属性名] [整数目标值] [±n]...
 
 | 形式 | 含义 | 示例 |
 | --- | --- | --- |
-| `名称` | 技能或属性，目标值取卡面 | `ra 心理学`、`ra 体质` |
+| `名称` | 技能、属性或资源轨，目标值取卡面 | `ra 心理学`、`ra 体质`、`ra 理智` |
 | `名称+n` / `名称-n` | 名字内联奖励/惩罚骰 | `ra 心理学+2`、`ra 侦查-1` |
 | `名称*n` | 目标值 = 卡面值 × n（n 为正整数） | `ra 体质*5` |
 | `名称/n` | 目标值 = 卡面值 ÷ n（整除） | `ra 心理学/2` |
@@ -290,6 +290,8 @@ ra [选项] [难度] [n#] [技能/属性名] [整数目标值] [±n]...
 | `整数±n` | 显式目标值带奖励/惩罚骰 | `ra 60+2` |
 
 约束：显式目标值不能与 `*n`/`/n` 同用；名字最多一个；目标值最多一个。给了显式目标值又给名字时，名字仅作标签，但仍必须能在规则书中解析到。
+
+**名字解析阶梯**（全部来自规则书声明，三类共用）：属性 → 技能 → 资源轨。资源轨的名字由 `derived.vitals` 的 `name`/`aliases` 声明（CoC：`理智`/`理智值`/`san`/`SAN` → san 轨），目标值取轨道**当前值**；卡上还没有该轨时用规则书声明的 fallback 公式（CoC 理智 = POW）。
 
 **目标值算式 vs 奖惩骰**
 
@@ -322,6 +324,7 @@ sc [选项] <成功损失>/<失败损失> [当前值] [原因...]
 - **机器人默认 `--apply`**（平台惯例）；CLI 必须显式加 `--apply` 才改卡。
 - 大失败按规则书 `fumble_loss` 取最大损失（CoC 7e 约定）。
 - 负损失表示**恢复**：`after = before - loss`。
+- `sc` 调用的资源检定由规则书的 `command_bindings` 绑定（CoC → `sanity`）；规则书未声明绑定时该指令报「未声明绑定」而不是猜测。
 
 ### 5.4 `rc` — 检定别名
 
@@ -352,10 +355,10 @@ r <武器表达式>+db [原因...]
 ### 5.7 `rav` — 对抗检定
 
 ```
-rav [--system <规则书>] <A值> <B值>
+rav [选项] <A名或值> <B名或值>
 ```
 
-两个非负整数目标值，恰好两个位置参数。大失败必败（双大失败平）；其余等级声明越靠前越好；同级按规则书的 `tie_break` 处理。
+恰好两个位置参数，各自是非负整数目标值，或一个可解析的技能/属性/资源轨名（`rav 侦查 60`、`rav 力量 力量`；名字按与 `ra` 相同的阶梯对当前角色解析）。大失败必败（双大失败平）；其余等级声明越靠前越好；同级按规则书的 `tie_break` 处理。
 
 ### 5.8 `st derived` — 派生数值
 
@@ -431,7 +434,7 @@ pc new <名称> [KEY=VALUE ...] [--system <规则书>] [--active=false] [--set K
 ```
 st                # 整卡（等价 st show）
 st show           # 整卡
-st show <键>       # 单个属性/技能值
+st show <键>       # 单个属性/技能/资源轨值
 ```
 
 赋值（值必须整数，可多条；`=`/`:` 可省略，也接受“键 值”分写）：
@@ -441,6 +444,7 @@ st 力量60 侦查50
 st 力量 60 侦查 50
 st 力量=60
 st STR:50
+st san=40          # 资源轨：设当前值（轨道需已存在，见 st derived --init）
 ```
 
 增减（`±` 后接整数或骰子表达式，可多条）：
@@ -449,6 +453,8 @@ st STR:50
 st 理智-1d6
 st HP+2 MP-1
 ```
+
+赋值与增减对资源轨生效时只改**当前值**；键按与 `ra` 相同的阶梯解析（属性 → 技能 → 资源轨，`理智`/`san`/`SAN` 均可）。
 
 同一条 `st` 中**不能混用赋值与增减**。
 
@@ -466,10 +472,20 @@ st del <键>       # 删除一个属性/技能值
 st clr            # 清空该卡的自定义属性/技能值
 ```
 
+技能加点（作成后分配技能点，池由规则书 `generation.skill_points` 声明，见 11.13）：
+
+```
+st alloc                        # 查看点池（已用/总点、单技能上限）
+st alloc 职业 侦查+40 图书馆使用+20   # 加点；不在卡上的技能从规则书基础值起步
+st alloc 职业 侦查-10            # 退点（不超过该技能已加点数，回落不低于基础值）
+st alloc clr                    # 重置全部加点（技能回落基础值）
+```
+
 ### 6.5 规则
 
 - `st` 一次调用内不能混用赋值与 `±` 增减；`±` 右侧必须是纯骰子表达式（不接受 `#` 与比较后缀）。
 - `st K±...` 依次解析属性（规则书属性）、技能（角色卡已有值）、资源轨（已初始化的 hp/mp/san 等，大小写不敏感）；解析不到即 `INVALID_ARGUMENT`。
+- `st alloc` 的点数必须是**纯整数**（不接受骰子表达式）；池按卡的生成变体解析（`coc6` 生成的卡用 6 版池），生成与 `pc redo` 会报告点池并重置加点记录；上限按 cap_overrides → 池 cap → `limits.skill` 依次取用。
 - 具名宏保存在角色卡上（`macros` 段），`&` 前缀只存在于界面层。
 - 掷骰统计（`pc stat`）只统计**检定**（有目标与成败判定的掷骰：技能/属性检定与资源检定）；原始掷骰 `r` 与成长检定 `en` 不计入。
 
@@ -499,6 +515,8 @@ st clr            # 清空该卡的自定义属性/技能值
 选项：`--system <规则书>`、`--name <名字>`（省略随机姓名）、`--active=false`（默认第一张设为当前卡）。详细作成一次只能生成 1 人。
 
 生成结果是一张**普通角色卡**（属性已写入，技能留空即基础值），后续 `ra`/`st`/`en` 等命令照常可用。`pc redo` 会清空当前卡属性后重新生成并重算生命/理智轨。
+
+作成结果同时附带该生成变体的**技能点池**（如 CoC 7 版：职业技能点 EDU×4、单技能上限 90；兴趣技能点 INT×2、上限 75），用 `st alloc` 分配——技能从规则书基础值起步，1 点 = 技能值 +1，池余量与上限由卡记录跟踪（见 6.4）。
 
 ---
 
@@ -684,6 +702,8 @@ rule sections [--system <规则书>]          # 列出各段及条目 id
 rule new <新ID> --from <基础规则书>         # 以某本规则书为基础创建新规则书
 rule patch '<JSON>' [--system <规则书>]     # 应用一批规则修改
 rule patch --file <JSON路径> [--system]    # 从文件读取修改批次
+rule add --file <规则书.yaml> [--force]    # 安装自定义规则书（QQ：先发文件再 rule add）
+rule del <规则书id>                        # 卸载用户规则书
 ```
 
 `<段>` 取值：`skill`、`attr`、`level`、`rules`、`limit`、`mechanic`、`opposed`。
@@ -726,6 +746,26 @@ rule patch --file house-rules.json --system coc7
 - 用户规则书原地覆盖；内置规则书首次编辑会复制到 `<数据根>/rulebooks/<id>.yaml`。
 - 保存成功后热更新注册表，立即生效，无需重启。
 - `rule new` 创建的新书会移除基础书的 `commands` 与 `default`，避免别名冲突或抢占默认书。
+
+#### 安装与卸载自定义规则书（rule add / rule del）
+
+可以从现成的规则书 YAML 文件直接安装（配合 `web/rulebook-generator.html`
+生成器，或从别人手里拿到的规则书文件）：
+
+```
+rule add --file 我的规则书.yaml          # 校验 → 落盘 → 热更新，一步完成
+rule add --file 我的规则书.yaml --force  # 覆盖同名用户规则书
+rule del 我的规则书id                    # 卸载并删除文件
+```
+
+- 规则书 id 取自 YAML 的顶层 `id` 字段，与文件名无关。
+- 校验失败（字段拼错、公式错误等）不会写任何文件；单本上限 512 KiB。
+- 内置规则书（coc7/dnd5e）不允许被覆盖或删除。
+- 还有角色卡在用的规则书、当前默认规则书不能删除，需先处理。
+
+**QQ 里怎么装**：把 .yaml 规则书文件直接发给骰娘（私聊最稳妥；群里发文件需要
+机器人开通「接收所有消息」权限），然后发送 `rule add`。安装与卸载仅限
+bot master（服务端环境变量 `DICEGIRL_BOT_MASTERS`，逗号分隔 openid，留空则无人可装）。
 
 ### 10.4 `help`
 
@@ -815,7 +855,7 @@ dicegirl .ra --system mini 50                  # 用这本书检定
 | `resource_checks` | 否 | 以检定驱动的资源损失 |
 | `tables` | 否 | 随机表 |
 | `growth_checks` | 否 | 成长检定 |
-| `generation` | 否 | 人物作成规则 |
+| `generation` | 否 | 人物作成规则（含技能点池 `skill_points`） |
 
 ### 11.4 检定机制
 
@@ -924,9 +964,9 @@ derived:
         - { when: "STR<SIZ && DEX<SIZ",   value: 7 }
         - { default: true,                value: 8 }
   vitals:
-    - { resource: hp,  max: max_hp,      initial: max_hp }
-    - { resource: mp,  max: max_mp,      initial: max_mp }
-    - { resource: san, max: "99",        initial: initial_san }
+    - { resource: hp,  name: "体力",   aliases: ["生命值"], max: max_hp,  initial: max_hp }
+    - { resource: mp,  name: "魔法值", aliases: ["魔力"],   max: max_mp,  initial: max_mp }
+    - { resource: san, name: "理智",   aliases: ["理智值"], max: "99",    initial: initial_san }
   initial_attributes:
     - { attribute: LUCK, value: initial_luck }
 ```
@@ -940,6 +980,7 @@ derived:
 | `lookup` | `lookup: damage_bonus` + `field: build` 或 `field: bonus` | build 得整数；bonus 得骰子表达式字符串（仅展示/掷骰） |
 
 - `vitals` 声明可初始化的资源轨；建卡后会立即按 `vitals`/`initial_attributes` 把初始值录进卡。
+- `vitals` 的 `name`/`aliases`（可选）把轨道纳入名字解析阶梯（属性 → 技能 → 资源轨）：`ra 理智`、`st show 体力`、`st san=40` 都经此解析；轨道原始 id（大小写不敏感）恒可解析。
 - `initial_attributes` 在初始化时补齐角色卡上缺失的属性（如 LUCK）。
 
 ### 11.9 资源检定（理智等）
@@ -960,6 +1001,7 @@ resource_checks:
 - 损失规格：非负整数或骰子表达式；带符号的规格表示恢复（`"-1"`、`"-1d4"`）。
 - `fumble_loss: max`：大失败时失败损失不掷骰，直接取理论最大值（定值即其本身，骰子式取全部保留骰面之和）。
 - 引擎只产出**变更建议**（before/after/delta 与损失掷骰明细），不写卡；`.sc 0/1d10 --apply` 才持久化。
+- `fallback` 是**整条 fallback 链的第一环**：`resource_checks.fallback` → 所指轨道 `vitals.initial` 公式 → 报错。`ra 理智` 等资源轨检定在卡上无轨道时走同一条链。
 
 ### 11.10 规则书公式语言
 
@@ -1047,12 +1089,22 @@ generation:
     skills:                     # 剩余点数用于技能，这里只声明各技能上限
       occupation_cap: "EDU*5"
       interest_cap: 75
+  skill_points:                 # 作成后的技能加点池（st alloc 分配）
+    - id: occupation
+      name: "职业技能点"
+      aliases: ["职业"]
+      points: "EDU*4"           # 属性公式；1 点 = 技能值 +1
+      cap: 90                   # 该池加点的单技能值上限（终值 ≤ cap）
+      cap_overrides:            # 单技能特例（如兴趣点给手枪至多 50）
+        - { skill: firearms_handgun, cap: 50 }
+    - { id: interest, name: "兴趣技能点", aliases: ["兴趣"], points: "INT*2", cap: 75 }
 ```
 
 - **骰点法**（默认）：逐条掷 `characteristics` 的表达式得到属性值（可选 `min`/`max` 夹取），一次生成一个角色；批量生成时每张卡各掷各的。
-- **变体**：`variants` 声明同一游戏的其它版本，`default_variant` 指定默认版本。
-- **购点法**：先买 EDU/INT（点数池随之为 `EDU*20 + INT*10`），再按 `priorities` 的顺序把点数花到目标值上。剩余点数留给技能，各技能上限由 `skills` 声明。
-- CLI 是**非交互**的：按规则书声明的 `priorities` 自动分配并如实报告点数余额；技能点留给玩家用 `st 技能70` 自行分配。
+- **变体**：`variants` 声明同一游戏的其它版本，`default_variant` 指定默认版本；变体可各自覆盖 `characteristics`、`point_buy` 与 `skill_points`。卡以 metadata 记录自己由哪个变体生成，`st alloc` 按该变体的点池结算。
+- **购点法**：先买 EDU/INT（点数池随之为 `EDU*20 + INT*10`），再按 `priorities` 的顺序把点数花到目标值上。剩余点数留给技能，各技能上限由 `skills` 声明（仅报告）。
+- CLI 是**非交互**的：按规则书声明的 `priorities` 自动分配并如实报告点数余额。
+- **技能点池**：`skill_points` 声明作成后可分配的点池（`points` 属性公式、`cap` 单技能终值上限、`cap_overrides` 单技能特例）。技能从规则书基础值起步（`base`/`base_expr`），1 点 = 值 +1；`st alloc` 加点/退点/重置，池余量记在卡的 `skill_points` 段（按池、按技能记账）。设计细节见 [skill-point-allocation.md](design/skill-point-allocation.md)。
 
 ### 11.14 当前的声明边界
 
@@ -1061,9 +1113,23 @@ generation:
 - 骰面语义超出普通表达式的掷法：骰池（可用 `c` 算子近似）、Fudge 骰等；
 - 多步有状态流程：疯狂/恐惧发作的多步流程、战斗轮、先攻、治疗周期；
 - 条件性资源变化（按成功等级分多档损失、连锁多次掷骰）；
-- 物品/武器/法术库，以及规则书自定义的指令逻辑（身份头只声明人物作成别名；角色卡具名宏见 3.5/6.4）。
+- 物品/武器/法术库，以及规则书自定义的指令逻辑（命令动词只能经 `commands` 声明作成别名、经 `command_bindings` 绑定到资源检定或随机表；角色卡具名宏见 3.5/6.4）。
 
 边界之外的通用能力（角色卡 CRUD、导入导出、备份、任意骰子表达式、随机表与数据包）对任何规则书立即可用。
+
+### 11.15 命令绑定（`command_bindings`）
+
+聊天动词 `sc`/`ti`/`li` 调用什么由规则书声明（动词名本身是 Dice! 惯例，全局保留；作成别名见 `commands`）：
+
+```yaml
+command_bindings:
+  sc: { resource_check: sanity }          # sc → 理智检定
+  ti: { table: temporary_insanity }       # ti → 临时疯狂症状表
+  li: { table: summary_insanity }         # li → 总结性疯狂表
+```
+
+- 每个绑定恰好一个目标（`resource_check` 或 `table`）；目标 id 在装载期校验，不存在即整本规则书加载失败。
+- 规则书未声明某动词的绑定时，该动词回答「未声明绑定」（例如对 dnd5e 掷 `ti` 不会落到 CoC 的表上）。
 
 ---
 
@@ -1224,6 +1290,7 @@ log time                 # 当前记录累计时长
 | `DICEGIRL_BOT_REPLY_UNKNOWN` | `true` 时对非指令消息回复提示 |
 | `DICEGIRL_BOT_DEBUG` | `true` 时打印事件原文、丢弃原因与 HTTP 明细（排障用） |
 | `DICEGIRL_BOT_LOG_FILE` | 额外写入日志文件（10MB 轮转，保留 3 份） |
+| `DICEGIRL_BOT_MASTERS` | master openid 列表（逗号分隔）；`rule add`/`rule del` 仅 master 可用，留空 = 无人可装 |
 
 ---
 

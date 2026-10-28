@@ -98,16 +98,22 @@ func (ts *TableSet) Tables() []TableDef {
 	return out
 }
 
-// Find returns the table with the given id.
+// Find returns the table with the given id, falling back to its display
+// name (tb 临时疯狂症状).
 func (ts *TableSet) Find(id string) (TableDef, bool) {
 	if ts == nil {
 		return TableDef{}, false
 	}
-	i, ok := ts.index[strings.ToLower(strings.TrimSpace(id))]
-	if !ok {
-		return TableDef{}, false
+	key := strings.ToLower(strings.TrimSpace(id))
+	if i, ok := ts.index[key]; ok {
+		return ts.tables[i], true
 	}
-	return ts.tables[i], true
+	for _, t := range ts.tables {
+		if t.Name == id {
+			return t, true
+		}
+	}
+	return TableDef{}, false
 }
 
 // Roll rolls the table and returns the hit row with its (sub-)rolls.

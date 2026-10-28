@@ -10,10 +10,13 @@ package main
 //	DICEGIRL_BOT_REPLY_UNKNOWN  非指令的@消息是否回复提示（默认 false：静默忽略）
 //	DICEGIRL_BOT_LOG_FILE    同时写入日志文件（默认只写 stdout / journald，自动轮转）
 //	DICEGIRL_BOT_DEBUG       排障日志：打印全部网关事件原文、丢弃原因与 HTTP 收发明细（默认 false）
+//	DICEGIRL_BOT_MASTERS     master openid 列表（逗号分隔，按 union/user/member openid 匹配）；
+//	                         rule add / rule del 仅 master 可用。留空 = 无人可安装（安全默认）
 
 import (
 	"os"
 	"strconv"
+	"strings"
 
 	"dicegirl/internal/apperr"
 )
@@ -26,6 +29,7 @@ const (
 	envReplyUnknown = "DICEGIRL_BOT_REPLY_UNKNOWN"
 	envLogFile      = "DICEGIRL_BOT_LOG_FILE"
 	envDebug        = "DICEGIRL_BOT_DEBUG"
+	envMasters      = "DICEGIRL_BOT_MASTERS"
 
 	defaultBotDataRoot = "botdata"
 	defaultAPIBase     = "https://api.bot.qq.com"
@@ -43,6 +47,9 @@ type botConfig struct {
 	// Debug enables raw gateway/HTTP tracing and the reasons messages are
 	// dropped.
 	Debug bool
+	// Masters holds the openids allowed to run rule add / rule del. A
+	// sender matches when any of its openids (union/user/member) is listed.
+	Masters map[string]bool
 }
 
 func configFromEnv() (*botConfig, error) {
@@ -78,6 +85,12 @@ func configFromEnv() (*botConfig, error) {
 				envDebug+" 必须是 true/false 或 1/0", err)
 		}
 		cfg.Debug = b
+	}
+	cfg.Masters = map[string]bool{}
+	for _, id := range strings.Split(os.Getenv(envMasters), ",") {
+		if id = strings.TrimSpace(id); id != "" {
+			cfg.Masters[id] = true
+		}
 	}
 	return cfg, nil
 }

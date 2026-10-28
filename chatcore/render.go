@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"sort"
+	"strconv"
 	"strings"
 
 	"dicegirl/internal/app"
@@ -219,6 +220,13 @@ func generationLine(c *app.GeneratedSheet) string {
 			fmt.Fprintf(&sb, "，兴趣上限 %d", c.PointBuy.InterestCap)
 		}
 		sb.WriteString("）")
+	}
+	if len(c.SkillPools) > 0 {
+		pools := make([]string, 0, len(c.SkillPools))
+		for _, p := range c.SkillPools {
+			pools = append(pools, fmt.Sprintf("%s %d/%d（上限 %d）", p.Name, p.Spent, p.Points, p.Cap))
+		}
+		fmt.Fprintf(&sb, "；加点 %s", strings.Join(pools, "，"))
 	}
 	return sb.String()
 }
@@ -583,6 +591,46 @@ func adjustKindText(kind string) string {
 	default:
 		return kind
 	}
+}
+
+// SkillPools renders the creation skill-point pools of a card.
+func (r *Renderer) SkillPools(view *app.SkillPointsView) error {
+	return r.render(view, func() string {
+		return "技能加点：" + skillPoolsText(view)
+	})
+}
+
+// SkillPoolsCleared renders the reset of a card's skill-point allocation.
+func (r *Renderer) SkillPoolsCleared(view *app.SkillPointsView) error {
+	return r.render(view, func() string {
+		return "已重置加点（技能回落基础值）。技能加点：" + skillPoolsText(view)
+	})
+}
+
+// skillPoolsText renders the pools as "职业技能点 40/280（上限 90）｜...".
+func skillPoolsText(view *app.SkillPointsView) string {
+	parts := make([]string, 0, len(view.Pools))
+	for _, p := range view.Pools {
+		parts = append(parts, fmt.Sprintf("%s %d/%d（上限 %d）", p.Name, p.Spent, p.Points, p.Cap))
+	}
+	return strings.Join(parts, "｜")
+}
+
+// SkillAllocation renders the settled spends of one st alloc command.
+func (r *Renderer) SkillAllocation(results []engine.SkillAllocationResult) error {
+	return r.render(results, func() string {
+		lines := make([]string, 0, len(results))
+		for _, res := range results {
+			start := strconv.Itoa(res.Before)
+			if res.FromBase {
+				start = "基础 " + start
+			}
+			lines = append(lines, fmt.Sprintf("%s %s%+d=%d（%s %d/%d）",
+				res.SkillName, start, res.Delta, res.After,
+				res.PoolName, res.PoolSpent, res.PoolTotal))
+		}
+		return strings.Join(lines, "\n")
+	})
 }
 
 func comparisonText(c *dice.Comparison) string {

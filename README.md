@@ -50,8 +50,11 @@ dicegirl .pc new 调查员甲 STR=50 CON=60 SIZ=70 DEX=55 POW=55 EDU=70 \
 dicegirl .st derived --init      # 派生数值并初始化生命/理智轨
 dicegirl .ra 心理学+1            # 技能检定（+1 = 奖励骰）
 dicegirl .ra 力量-1              # 属性检定（-1 = 惩罚骰）
+dicegirl .ra 理智                # 资源轨检定（名字由规则书声明）
 dicegirl .sc 0/1d10 --apply      # 理智检定（写回角色卡）
 dicegirl .r 1d8+db               # 武器伤害（db 自动展开伤害加值）
+dicegirl .coc                    # 摇属性建卡（附带技能点池）
+dicegirl .st alloc 职业 侦查+40    # 作成后分配技能点（st alloc 查看余量）
 dicegirl .pc show                # 查看当前角色
 ```
 
@@ -86,10 +89,10 @@ dicegirl .rule patch --file house-rules.json  # 应用 house rules 并热更新
 | 分类 | 指令 |
 | --- | --- |
 | 掷骰 | `.r`（掷骰）、`.rd`（默认骰）、`.rs`（只出总值）、`.w`/`.ww`（骰池）、`.set`（默认骰面 / 规则书列表与切换） |
-| 检定 | `.ra`/`.rc`（技能/属性检定；`+1` 优势、`-1` 劣势、难度关键词、`n#` 连掷、`*n` 目标算式）、`.rb`/`.rp`（奖励/惩罚骰）、`.rav`（对抗）、`.sc`（理智） |
+| 检定 | `.ra`/`.rc`（技能/属性/资源轨检定，如 `.ra 理智`；`+1` 优势、`-1` 劣势、难度关键词、`n#` 连掷、`*n` 目标算式）、`.rb`/`.rp`（奖励/惩罚骰）、`.rav`（对抗，名字或数值）、`.sc`（理智） |
 | 角色卡 | `.pc list/show/new/use/active/nn/copy/cpy/del/val/meta/export/import/redo/build/stat/clr`、`.st`（查看/赋值/增减/具名宏/派生数值）——角色用名字或 id 引用 |
 | 人物作成 | `.coc`/`.coc6d`/`.coc 10`、`.dnd`/`.dndd`（别名由规则书声明） |
-| 规则与数据 | `.rule list/validate`（规则书）、`.rule ref`（速查）、`.rule`（规则书查看/编辑/派生）、`.tb`（随机表）、`.ti`/`.li`（CoC 疯狂表） |
+| 规则与数据 | `.rule list/validate`（规则书）、`.rule ref`（速查）、`.rule`（规则书查看/编辑/派生）、`.tb`（随机表）、`.ti`/`.li`（疯狂表；`sc`/`ti`/`li` 调用什么由规则书 `command_bindings` 声明） |
 | 游戏/团务 | `.game`（游戏/团管理：同一群可并行多场游戏；`join/exit/master/set/call/kick/close/open/over/rou` 管名单、团变量、开关与轮盘骰）、`.ak`（随机抉择）、`.name`（随机姓名）、`.en`（成长）、`.ri`/`.init`（先攻）、`.deck`/`.draw`（牌堆、弃牌堆） |
 | 跑团记录 | `.log`（状态）、`.log new/on/off/end/halt`（开始/暂停/继续/结束）、`.log list/get/stat/export/del`、`.log type txt/html`、`.log timer on/off`、`.log time` |
 
@@ -260,7 +263,7 @@ tests/integration/ 端到端测试（进程内驱动 cmd/dicegirl/cli）
 - P2 声明式百分骰引擎（全部由 [rulebooks/coc7.yaml](rulebooks/coc7.yaml) 驱动）：技能/属性检定、成功等级（普通/困难/极难/失败/大失败）、奖励骰/惩罚骰（含 00/0=100 语义，支持 `ra 心理学+2` 内联语法糖与 `rb`/`rp` 入口）、显式难度（`ra 困难心理学`、`ra 极难 心理学 60`、`ra 自动成功心理学`；难度关键词也由 YAML 声明）、**目标值算式**（`ra 体质*5`、`ra --mod -10`，区别于奖惩骰）、规则书同义词（`aliases`）、对抗检定
 - P3 声明式扩展：武器伤害与伤害加值表、资源检定（理智损失与**可选**写回、`fumble_loss: max` 大失败静态最大损失、负损失恢复、显式当前值）、派生属性（HP/MP/初始理智/体格/MOV）、生命条与初始属性初始化
 - P4 声明式随机表与成长：`tables`（随机表：掷骰选行、行文本可内嵌 `{1d3}` 子掷、`ti`/`li` 掷 CoC7 疯狂表）、`growth_checks`（成长检定，成长后直接写卡）、数据包（`datapacks/`：随机姓名等**非规则**内容）、随机抉择（`.ak`）
-- P5 声明式人物作成：`generation`（骰点法属性生成式、CoC6/7 变体、购点法点数池/费率/自动分配）、`.coc`/`.coc6d`/`.coc 10`、`.dnd`/`.dndd`（内置 D&D 5e：4d6 丢最低 / 27 点购点；别名由规则书声明）、`pc redo`
+- P5 声明式人物作成：`generation`（骰点法属性生成式、CoC6/7 变体、购点法点数池/费率/自动分配）、`.coc`/`.coc6d`/`.coc 10`、`.dnd`/`.dndd`（内置 D&D 5e：4d6 丢最低 / 27 点购点；别名由规则书声明）、`pc redo`；作成后技能加点 `generation.skill_points`（技能点池：`st alloc` 查看/加点/退点/重置，7 版职业 EDU×4 上限 90、兴趣 INT×2 上限 75，6 版惯例 EDU×20/INT×10）
 - P6 通用算子与具名宏：骰组修饰符 `!`（爆骰）、`r`（重投）、`c`（成功计数，骰池语义）、`.w`/`.ww` 骰池别名；角色卡上的具名宏（`.st &名=表达式`、`.r &名`，也接受省略 `&` 的名字）
 - 机制可插拔：`mechanic.roll` + `meets` 用骰子表达式与布尔公式声明检定（含 `bonus_keep`/`penalty_keep`），引擎只有这一套通用机制、没有内置游戏检定族；成功等级与难度语义随声明适配。内置 D&D 5e（2014）规则书 [rulebooks/dnd5e.yaml](rulebooks/dnd5e.yaml)（d20 表达式、优势/劣势、DC、18 技能、派生数值、随机表、4d6 丢最低与 27 点购点）与示例书 `docs/examples/dnd-lite.yaml`
 - P7 游戏与团务工具：游戏/团管理（`.game`，同一群多场游戏并行，默认规则书/先攻/牌堆/当前卡/团务按游戏隔离，角色卡共享）、GM/玩家名单、团变量、暂关/结团、防刷点轮盘骰（`game rou`）、先攻列表（`.ri`/`.init`）、牌堆与抽牌（`.deck`/`.draw`，不放回、牌库/弃牌堆分离、`deck put` 放回、`draw … 放回` 抽后放回、跨进程持久化）

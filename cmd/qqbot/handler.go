@@ -45,6 +45,7 @@ type botHandler struct {
 
 	stores *groupStores
 	binds  *bindManager
+	inbox  *fileInbox
 
 	dedupeMu sync.Mutex
 	seen     map[string]time.Time
@@ -60,6 +61,7 @@ func newBotHandler(cfg *botConfig, m *bot.Manager, api *apiClient,
 		logger:   logger,
 		stores:   newGroupStores(),
 		binds:    newBindManager(),
+		inbox:    newFileInbox(),
 		seen:     map[string]time.Time{},
 	}
 }
@@ -77,6 +79,21 @@ func (h *botHandler) handle(ctx context.Context, scope string, ev messageEvent) 
 	if ev.ID != "" && !h.markSeen(ev.ID) {
 		h.debugf("丢弃重复投递 scope=%s msg=%s", scope, ev.ID)
 		return // duplicate redelivery
+	}
+	// A rulebook upload arrives as a file attachment (content_type=file),
+	// usually with no command text. Stash it for the sender's next
+	// `rule add` and reply with the next step. Group file messages only
+	// reach the bot when the全量消息 permission (GROUP_MESSAGE_CREATE) is
+	// enabled — otherwise masters upload in a private chat.
+	if att, ok := yamlFileAttachment(ev); ok {
+		h.logger.Printf("收到规则书文件 scope=%s msg=%s file=%q size=%d",
+			scope, ev.ID, att.Filename, att.Size)
+		target := ev.GroupOpenid
+		if scope == botScopeC2C {
+			target = ev.Author.UserOpenid
+		}
+		h.postText(ctx, scope, target, ev.ID, 1, h.stashUpload(ctx, scope, ev, att))
+		return
 	}
 	// Only plain text events are commands for now (voice attachments carry
 	// asr_refer_text but ignoring them keeps the contract explicit).
@@ -123,6 +140,16 @@ func (h *botHandler) runC2C(ctx context.Context, ev messageEvent, content string
 	// channel is already private.
 	if isHiddenCommand(content) {
 		content = h.hiddenLine(ctx, bot.ScopeC2C, target, content)
+	}
+	// rule add / rule del are gated and consume inbox files; they bypass the
+	// generic executor path.
+	if mutation, _ := ruleMutation(content); mutation {
+		h.runRuleMutation(ctx, botScopeC2C, target, ev, content,
+			func(line string) (string, int, bool) {
+				return h.executeWith(ctx, bot.ScopeC2C, target, line,
+					bot.WithAutoApply(), bot.WithActor(target, "私聊用户", false))
+			})
+		return
 	}
 	var logExport string
 	out, code, ok := h.executeWith(ctx, bot.ScopeC2C, target, content,
@@ -195,7 +222,20 @@ func (h *botHandler) runGroup(ctx context.Context, ev messageEvent, content stri
 		return
 	}
 	fields := strings.Fields(content)
-	name := groupCommandName(content)
+
+	// rule add / rule del: master-gated, inbox-consuming, executed with a
+	// minimal option set (no card binding matters for rulebook management).
+	if mutation, _ := ruleMutation(content); mutation {
+		member := ev.Author.MemberOpenid
+		tid := h.scopeTableID(ctx, t)
+		h.runRuleMutation(ctx, botScopeGroup, ev.GroupOpenid, ev, content,
+			func(line string) (string, int, bool) {
+				return h.executeWith(ctx, bot.ScopeGroup, ev.GroupOpenid, line,
+					bot.WithAutoApply(),
+					bot.WithActor(member, memberLabel(st, member, tid), false))
+			})
+		return
+	}
 
 	// Ordinary chat is part of a play log. Commands are recorded by the
 	// shared executor; adapter-only commands (ob/bind/pc tag) stay outside
@@ -207,21 +247,93 @@ func (h *botHandler) runGroup(ctx context.Context, ev messageEvent, content stri
 		}
 	}
 
-	switch {
-	case isHiddenCommand(content):
+	switch action, sub := groupDispatch(content); action {
+	case groupActionHidden:
 		h.runHiddenInGroup(ctx, t, st, ev, content)
-	case name == "ob":
+	case groupActionObserver:
 		h.runObserver(ctx, t, st, ev, fields[1:], func(text string) {
 			h.postText(ctx, botScopeGroup, ev.GroupOpenid, ev.ID, 1, text)
 		})
-	case name == "pc" && h.isGroupPC(fields):
-		sub, _ := isGroupPCCommand(fields)
+	case groupActionPCBinding:
 		h.runPCBinding(ctx, t, st, ev, sub, fields[2:], func(text string) {
 			h.postText(ctx, botScopeGroup, ev.GroupOpenid, ev.ID, 1, text)
 		})
+	case groupActionPCRejected:
+		// Only state-changing card commands are refused here: the group's
+		// card store is shared by every member, so pc new/nn/use/del/clr/...
+		// must never reach the general executor. Read-only subcommands
+		// (show/list/active/val/stat) stay on the normal path above.
+		h.postText(ctx, botScopeGroup, ev.GroupOpenid, ev.ID, 1,
+			"群里不能新建、改名、删除或切换角色卡；这类操作请在私聊进行（查看可用 pc show / pc list）")
 	default:
 		h.runNormal(ctx, t, st, ev, content)
 	}
+}
+
+// groupAction is the group-chat counterpart of a dispatch decision: which
+// handler a message goes to. It exists so the decision can be tested without
+// opening a tenant, a store or an API client.
+type groupAction int
+
+const (
+	// groupActionNormal is an ordinary command: the shared executor runs it
+	// with the sender's bound card.
+	groupActionNormal groupAction = iota
+	groupActionHidden
+	groupActionObserver
+	// groupActionPCBinding is one of the card-binding subcommands the
+	// adapter handles itself (pc tag/untag/grp).
+	groupActionPCBinding
+	// groupActionPCRejected is any pc line that would change the group's
+	// persistent state. Those subcommands (new/nn/use/del/clr/copy/import/
+	// meta/export/...) are private-chat only and must not fall through to
+	// the executor: the group store is shared, so a fall-through would let
+	// any member rename or delete another member's card, clear the table, or
+	// repoint the table's active card at someone else's sheet.
+	groupActionPCRejected
+)
+
+// groupDispatch decides which group handler a message goes to. It is pure so
+// the pc boundary can be tested for every subcommand; runGroup only executes
+// the decision.
+func groupDispatch(content string) (groupAction, string) {
+	name := groupCommandName(content)
+	fields := strings.Fields(content)
+	switch {
+	case isHiddenCommand(content):
+		return groupActionHidden, ""
+	case name == "ob":
+		return groupActionObserver, ""
+	case name == "pc":
+		// Three outcomes, in order: the adapter's own binding subcommands,
+		// the read-only subcommands (which the shared executor renders
+		// normally), and everything else, which is refused.
+		if sub, ok := isGroupPCCommand(fields); ok {
+			return groupActionPCBinding, sub
+		}
+		if isGroupPCReadOnly(fields) {
+			return groupActionNormal, ""
+		}
+		return groupActionPCRejected, ""
+	}
+	return groupActionNormal, ""
+}
+
+// isGroupPCReadOnly reports whether a pc line only reads the card store. The
+// line is "read-only" when the subcommand changes no persistent state — not
+// when it merely looks like a query: `pc stat clr` resets a card's dice
+// statistics, so it is excluded even though `pc stat` itself only reads.
+func isGroupPCReadOnly(fields []string) bool {
+	if len(fields) < 2 {
+		return false
+	}
+	switch fields[1] {
+	case "show", "list", "active", "val":
+		return true
+	case "stat":
+		return len(fields) < 3 || fields[2] != "clr"
+	}
+	return false
 }
 
 // groupContext opens the group's application and adapter state. The failure
@@ -248,11 +360,6 @@ func (h *botHandler) groupContext(ctx context.Context, ev messageEvent) (*bot.Te
 		h.logger.Printf("迁移旧版战报失败 group=%s：%v", groupOpenid, err)
 	}
 	return t, st, true
-}
-
-func (h *botHandler) isGroupPC(fields []string) bool {
-	_, ok := isGroupPCCommand(fields)
-	return ok
 }
 
 // runNormal executes an ordinary command in the group, using the sender's

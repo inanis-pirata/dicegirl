@@ -53,14 +53,24 @@ type author struct {
 	UnionOpenid  string `json:"union_openid"`
 }
 
+// messageAttachment is one entry of the message `attachments` array. Only
+// the fields dicegirl consumes are declared; width/height etc. stay unparsed.
+type messageAttachment struct {
+	URL         string `json:"url"`
+	Filename    string `json:"filename"`
+	Size        int64  `json:"size"`
+	ContentType string `json:"content_type"` // voice / image/* / video/* / file=群文件
+}
+
 // messageEvent is the shared shape of GROUP_AT_MESSAGE_CREATE and
 // C2C_MESSAGE_CREATE; fields absent in one scene stay zero-valued.
 type messageEvent struct {
-	ID          string `json:"id"`
-	Content     string `json:"content"`
-	GroupOpenid string `json:"group_openid"`
-	Author      author `json:"author"`
-	MessageType int    `json:"message_type"`
+	ID          string               `json:"id"`
+	Content     string               `json:"content"`
+	GroupOpenid string               `json:"group_openid"`
+	Author      author               `json:"author"`
+	MessageType int                  `json:"message_type"`
+	Attachments []messageAttachment  `json:"attachments"`
 }
 
 const (

@@ -22,23 +22,25 @@ func TestDnD5eRulebook(t *testing.T) {
 		}
 	}
 
-	// A 5e character: six ability scores and the active card's system picks
-	// the dnd5e book for the following commands.
+	// A 5e character: six ability scores plus the T17a level slots, and the
+	// active card's system picks the dnd5e book for the following commands.
 	code, _, errs = runCLI(t, root, ".pc", "new", "战士", "--system", "dnd5e", "--active",
-		"STR=16", "DEX=14", "CON=15", "INT=8", "WIS=10", "CHA=12")
+		"STR=16", "DEX=14", "CON=15", "INT=8", "WIS=10", "CHA=12",
+		"LEVEL=5", "HIT_DIE=10")
 	if code != 0 {
 		t.Fatalf("create code=%d err=%s", code, errs)
 	}
 
 	// Ability modifiers use floor division, and the derived values include
-	// initiative, passive perception, unarmored AC and hit points.
+	// initiative, passive perception, unarmored AC and hit points. Level 5
+	// d10 fighter with CON 15 (+2): prof +3, HP = 10 + 4*(5+1) + 2*5 = 44.
 	code, out, errs = runCLI(t, root, ".st", "derived")
 	if code != 0 {
 		t.Fatalf("derived code=%d err=%s", code, errs)
 	}
 	for _, want := range []string{
 		"力量调整值 3", "敏捷调整值 2", "体质调整值 2", "智力调整值 -1",
-		"被动察觉 10", "护甲等级（无甲） 12", "HP 上限（1 级 d8 职业） 10",
+		"被动察觉 10", "护甲等级（无甲） 12", "熟练加值 3", "HP 上限（平均制） 44",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("derived output missing %q: %q", want, out)

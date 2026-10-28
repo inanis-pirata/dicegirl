@@ -213,9 +213,11 @@ derived:
         - { when: "STR<SIZ && DEX<SIZ",     value: 7 }
         - { default: true,                  value: 8 }
   vitals:
-    - { resource: hp,  max: max_hp,       initial: max_hp }
-    - { resource: mp,  max: max_mp,       initial: max_mp }
-    - { resource: san, max: "99",         initial: initial_san }
+    # name/aliases put the tracks into the sheet vocabulary: ra 理智, st show
+    # 体力, st san=40 all resolve through the rulebook's name ladder.
+    - { resource: hp,  name: "体力",   aliases: ["生命值", "生命"], max: max_hp,  initial: max_hp }
+    - { resource: mp,  name: "魔法值", aliases: ["魔力"],           max: max_mp,  initial: max_mp }
+    - { resource: san, name: "理智",   aliases: ["理智值"],         max: "99",    initial: initial_san }
   initial_attributes:
     - { attribute: LUCK, value: initial_luck }
 
@@ -283,8 +285,8 @@ rules:
 
   - id: character_creation
     title: "调查员作成"
-    keywords: ["调查员", "作成", "骰点法", "购点法", "coc", "生成"]
-    text: "骰点法：力量/体质/敏捷/外表/意志/幸运 = 3d6×5，体型/智力/教育 = (2d6+6)×5。购点法：九项属性合计 EDU×20 + INT×10 点，按费率购买（15–49 每 2 点 1 分；50–79 每 5 点 1 分；80–89 每 5 点 3 分；90–99 每 5 点 7 分），技能点数 EDU×20（上限 EDU×5），兴趣点 INT×10（上限 75）。"
+    keywords: ["调查员", "作成", "骰点法", "购点法", "coc", "生成", "加点", "技能点"]
+    text: "骰点法：力量/体质/敏捷/外表/意志/幸运 = 3d6×5，体型/智力/教育 = (2d6+6)×5。购点法：九项属性合计 EDU×20 + INT×10 点，按费率购买（15–49 每 2 点 1 分；50–79 每 5 点 1 分；80–89 每 5 点 3 分；90–99 每 5 点 7 分），技能点数 EDU×20（上限 EDU×5），兴趣点 INT×10（上限 75）。属性生成后分配技能点（st alloc）：职业 EDU×4（单技能上限 90），兴趣 INT×2（上限 75，兴趣点给射击（手枪）至多 50）；6 版惯例为职业 EDU×20、兴趣 INT×10（上限 99）。"
 
   - id: wounds
     title: "生命值与伤害承受"
@@ -447,6 +449,31 @@ generation:
         - { attr: INT, expr: "2d6*5" }
         - { attr: EDU, expr: "2d6*5" }
         - { attr: LUCK, expr: "2d6*5" }
+      # 6 版惯例：职业 EDU×20、兴趣 INT×10，作成上限 99（与购点法报告的
+      # 技能点数字同一惯例）。
+      skill_points:
+        - { id: occupation, name: "职业技能点", aliases: ["职业"], points: "EDU*20", cap: 99 }
+        - { id: interest,   name: "兴趣技能点", aliases: ["兴趣"], points: "INT*10", cap: 99 }
+
+  # 作成后的技能加点（技能点池）：属性生成后玩家把各池点数分配到技能上
+  # （`st alloc`，1 点 = 技能值 +1，不在卡上的技能从基础值起步）。points
+  # 是属性公式；cap 是该池加点的单技能值上限（终值 ≤ cap，因此兴趣点无法
+  # 把职业点加满的技能继续抬高）；cap_overrides 是单技能特例。
+  # 7 版标准：职业 EDU×4（上限 90）、兴趣 INT×2（上限 75；调查员手册限定
+  # 兴趣点给射击（手枪）至多 50）。哪个技能算职业技能由玩家与 KP 裁定。
+  skill_points:
+    - id: occupation
+      name: "职业技能点"
+      aliases: ["职业"]
+      points: "EDU*4"
+      cap: 90
+    - id: interest
+      name: "兴趣技能点"
+      aliases: ["兴趣"]
+      points: "INT*2"
+      cap: 75
+      cap_overrides:
+        - { skill: firearms_handgun, cap: 50 }
 
   point_buy:
     attributes: [STR, CON, SIZ, DEX, APP, INT, POW, EDU, LUCK]
@@ -473,6 +500,14 @@ generation:
     skills:
       occupation_cap: "EDU*5"
       interest_cap: 75
+
+# Chat-verb bindings: the Dice! verbs below invoke whatever this rulebook
+# declares (targets are validated at load time). A rulebook without these
+# bindings answers "未声明绑定" for the verbs instead of guessing.
+command_bindings:
+  sc: { resource_check: sanity }
+  ti: { table: temporary_insanity }
+  li: { table: summary_insanity }
 
 # Skill growth (成长检定). In a development phase the player improves a
 # marked skill: roll 1d100 and compare it with the current value.

@@ -208,6 +208,47 @@ func onOff(st *groupStore) string {
 
 // --- card binding ----------------------------------------------------------
 
+// groupTagNeedsName is the reply to `pc tag` without a card name. It names
+// only commands the group actually allows: `pc use` is refused there, so
+// pointing at it would walk the member into a second refusal.
+const groupTagNeedsName = "请指定角色卡：pc tag <名字>（可用 pc list 查看已有角色）"
+
+// groupTagRef extracts the card reference from a group `pc tag`.
+func groupTagRef(args []string) (ref string, ok bool) {
+	if len(args) == 0 {
+		return "", false
+	}
+	ref = strings.TrimSpace(args[0])
+	return ref, ref != ""
+}
+
+// groupTagTarget resolves the card a group `pc tag` binds, or returns the
+// reply to send instead. It never falls back to the table's active card: the
+// ActiveID is shared by every member of the group, so "my current card" is
+// not the sender's card. A fallback would turn a stale `pc use` into a
+// permanent binding on someone else's sheet, without the sender asking.
+//
+// resolve is a parameter so the no-fallback rule is testable: with no name it
+// must return the notice without consulting the card store at all.
+func groupTagTarget(args []string, resolve func(ref string) (string, error)) (id, reply string) {
+	ref, ok := groupTagRef(args)
+	if !ok {
+		return "", groupTagNeedsName
+	}
+	resolved, err := resolve(ref)
+	if err != nil {
+		return "", errMessage(err)
+	}
+	if resolved == "" {
+		// A second route to the same hijack: GetCharacter("") substitutes the
+		// active card (internal/app/characters.go:131), so an empty id must
+		// never leave here — it would bind the sender to whatever the group
+		// left active, which is exactly what the fallback above did.
+		return "", groupTagNeedsName
+	}
+	return resolved, ""
+}
+
 func (h *botHandler) runPCBinding(ctx context.Context, tenant *bot.Tenant, st *groupStore,
 	ev messageEvent, sub string, args []string, reply func(string)) {
 	member := ev.Author.MemberOpenid
@@ -216,24 +257,12 @@ func (h *botHandler) runPCBinding(ctx context.Context, tenant *bot.Tenant, st *g
 	tableName := h.tableName(sctx, tenant, tid)
 	switch sub {
 	case "tag":
-		ref := ""
-		if len(args) > 0 {
-			ref = args[0]
-		}
-		var id string
-		var err error
-		if ref == "" {
-			id, err = tenant.App.ActiveCharacterID(sctx)
-			if err != nil || id == "" {
-				reply("请先指定角色卡：pc tag <名字>，或先用 pc use 选一张卡")
-				return
-			}
-		} else {
-			id, err = chatcore.ResolveCardRef(sctx, tenant.App, ref)
-			if err != nil {
-				reply(errMessage(err))
-				return
-			}
+		id, msg := groupTagTarget(args, func(ref string) (string, error) {
+			return chatcore.ResolveCardRef(sctx, tenant.App, ref)
+		})
+		if msg != "" {
+			reply(msg)
+			return
 		}
 		c, err := tenant.App.GetCharacter(sctx, id)
 		if err != nil {
