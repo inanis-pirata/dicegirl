@@ -189,10 +189,15 @@ make package          # 或 go run ./scripts/package
 
 ### Linux 服务器部署（systemd）
 
-从 [Releases](https://github.com/inanis-pirata/dicegirl/releases/latest) 下载对应架构的 Linux 包并一键安装：
+从 [Releases](https://github.com/inanis-pirata/dicegirl/releases/latest) 下载对应架构的 Linux 包并一键安装。国内云服务器直连 GitHub 慢时，可在原链接前拼加速前缀（公共代理，失效就换一个）：
 
 ```bash
+# 直连：
 wget https://github.com/inanis-pirata/dicegirl/releases/download/v0.1.1/dicegirl-v0.1.1-linux-amd64.zip
+# 国内加速（任选其一，仅用于公开资源，切勿携带任何 token）：
+wget https://gh-proxy.com/https://github.com/inanis-pirata/dicegirl/releases/download/v0.1.1/dicegirl-v0.1.1-linux-amd64.zip
+wget https://mirror.ghproxy.com/https://github.com/inanis-pirata/dicegirl/releases/download/v0.1.1/dicegirl-v0.1.1-linux-amd64.zip
+
 unzip dicegirl-v0.1.1-linux-amd64.zip && cd dicegirl-v0.1.1-linux-amd64
 sudo ./install.sh
 ```
@@ -211,6 +216,7 @@ journalctl -u dicegirl -f            # 实时日志（DICEGIRL_BOT_LOG_FILE 可�
 
 - 机器人以 `DICEGIRL_DATA_ROOT=/var/lib/dicegirl/data`、`DICEGIRL_BOT_DATA_ROOT=/var/lib/dicegirl/botdata` 运行；自定义规则书放 `/var/lib/dicegirl/data/rulebooks/`，master 名单等机器人配置也写在 `bot.env`（如 `DICEGIRL_BOT_MASTERS`）。
 - 无 systemd 的环境（部分容器）脚本会打印手动运行命令兜底。
+- 本机网络好也可以下载后 `scp` 直传服务器，或用 `sh scripts/build-linux-wsl.sh` 自行构建——两种方式都完全绕开 GitHub 直连。
 - 升级：解压新版本包后重新 `sudo ./install.sh` 即可原地覆盖，数据与已填配置保留。
 - 卸载：`sudo ./uninstall.sh` 保留数据与配置；加 `--purge` 连数据一起删除。
 
