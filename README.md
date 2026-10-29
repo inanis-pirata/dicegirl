@@ -187,6 +187,33 @@ make package          # 或 go run ./scripts/package
 
 压缩包内是编译好的二进制与 `run.sh` / `run.ps1`、`bot.env.example`；Linux 包另含 `install.sh` / `uninstall.sh`（systemd 部署到 `/opt/dicegirl`，数据在 `/var/lib/dicegirl`）。WSL 内构建 Linux 包：`sh scripts/build-linux-wsl.sh`。
 
+### Linux 服务器部署（systemd）
+
+从 [Releases](https://github.com/inanis-pirata/dicegirl/releases/latest) 下载对应架构的 Linux 包并一键安装：
+
+```bash
+wget https://github.com/inanis-pirata/dicegirl/releases/download/v0.1.1/dicegirl-v0.1.1-linux-amd64.zip
+unzip dicegirl-v0.1.1-linux-amd64.zip && cd dicegirl-v0.1.1-linux-amd64
+sudo ./install.sh
+```
+
+`install.sh`（需 root）自动完成：程序装入 `/opt/dicegirl`、创建系统用户 `dicegirl`、数据目录 `/var/lib/dicegirl`（权限 700）、配置 `/etc/dicegirl/bot.env`（已存在则不覆盖）、写入并启用 systemd 服务 `dicegirl.service`（开机自启、崩溃 5 秒自动重启）。凭据未填时脚本会停下来提示。
+
+之后填入机器人凭据并启动：
+
+```bash
+sudo nano /etc/dicegirl/bot.env      # 填 DICEGIRL_QQ_APPID / DICEGIRL_QQ_SECRET
+sudo systemctl start dicegirl
+journalctl -u dicegirl -f            # 实时日志（DICEGIRL_BOT_LOG_FILE 可另写文件）
+```
+
+说明：
+
+- 机器人以 `DICEGIRL_DATA_ROOT=/var/lib/dicegirl/data`、`DICEGIRL_BOT_DATA_ROOT=/var/lib/dicegirl/botdata` 运行；自定义规则书放 `/var/lib/dicegirl/data/rulebooks/`，master 名单等机器人配置也写在 `bot.env`（如 `DICEGIRL_BOT_MASTERS`）。
+- 无 systemd 的环境（部分容器）脚本会打印手动运行命令兜底。
+- 升级：解压新版本包后重新 `sudo ./install.sh` 即可原地覆盖，数据与已填配置保留。
+- 卸载：`sudo ./uninstall.sh` 保留数据与配置；加 `--purge` 连数据一起删除。
+
 完整指令与规则书编写指南见 [docs/user-manual.md](docs/user-manual.md)；日常速查也可直接用 `dicegirl help`。
 
 ## 骰子表达式语法
